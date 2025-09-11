@@ -12,6 +12,8 @@ No external dependencies, just a single `.zsh` script and macOS built-in tools.
 - Toggle Dock options like `show-recents`
 - Deploy directly to your Dock (default, one-time set-once mode)
 - Optionally enforce Dock layout with a persistent managed profile (`--forced`)
+- Export Dock changes to a `.mobileconfig` file (`--export`)
+- Export only (generate `.mobileconfig`, then restore Dock) (`--export-only`)
 
 ---
 
@@ -20,7 +22,7 @@ No external dependencies, just a single `.zsh` script and macOS built-in tools.
 ### Option 1: Quick try-out (Downloads folder)
 Download the script to your Downloads folder and make it executable:
 ```bash
-curl -o ~/Downloads/dock-deployer.zsh https://github.com/jamessorrenti/toolbox/docker_deploy/raw/main/dock-deployer.zsh && chmod +x ~/Downloads/dock-deployer.zsh
+curl -L -o ~/Downloads/dock-deployer.zsh https://raw.githubusercontent.com/jamessorrenti/toolbox/main/dock_deployer/dock-deployer.zsh && chmod +x ~/Downloads/dock-deployer.zsh
 ```
 
 Run it:
@@ -31,7 +33,7 @@ Run it:
 ### Option 2: Install globally (recommended for reuse)
 Download directly into `/usr/local/bin` so it’s available system-wide:
 ```bash
-curl -o /usr/local/bin/dock-deployer https://github.com/jamessorrenti/toolbox/docker_deploy/raw/main/dock-deployer.zsh && chmod +x /usr/local/bin/dock-deployer
+curl -L -o /usr/local/bin/dock-deployer https://raw.githubusercontent.com/jamessorrenti/toolbox/main/dock_deployer/dock-deployer.zsh && chmod +x /usr/local/bin/dock-deployer
 ```
 
 Now you can run:
@@ -51,6 +53,16 @@ dock-deployer --remove "Maps,News" --add "/Applications/Slack.app" --hide-recent
 ### Reset Dock to defaults, then apply edits
 ```bash
 dock-deployer --reset --remove "Maps,News" --add "/Applications/Slack.app" --hide-recents
+```
+
+### Also export a .mobileconfig while applying edits
+```bash
+dock-deployer --remove "Maps,News" --add "/Applications/Slack.app" --hide-recents --export
+```
+
+### Export-only (generate a .mobileconfig, then restore Dock)
+```bash
+dock-deployer --remove "Maps,News" --add "/Applications/Slack.app" --hide-recents --export-only
 ```
 
 ### Force a persistent managed profile
@@ -92,6 +104,8 @@ sudo profiles -R -F ~/Desktop/Dock_export-MyMac.mobileconfig
 - `--add <comma list>` → add apps by full `.app` paths  
 - `--hide-recents` → disable Recents section in Dock  
 - `--reset` → reset Dock to macOS defaults before applying edits  
+- `--export` → apply changes once and also write a `.mobileconfig`  
+- `--export-only` → generate `.mobileconfig` and restore Dock to original state  
 - `--forced` → install the profile as persistent managed Dock  
 - `--uninstall` → remove the installed profile file at `--out`  
 
@@ -100,6 +114,6 @@ sudo profiles -R -F ~/Desktop/Dock_export-MyMac.mobileconfig
 ## Notes
 - By default, Dock Deployer makes one-time edits to your Dock (set-once mode).  
 - Use `--forced` for a persistent, managed Dock profile that remains enforced until you uninstall it.  
+- Use `--export` or `--export-only` to generate `.mobileconfig` files without needing persistent management.  
 - Finder and Trash are always present and cannot be removed.  
 - For additional options, import your profile (e.g., `Dock_export-MyMac.mobileconfig`) into a tool such as **iMazing Profile Editor** for further editing.
-
