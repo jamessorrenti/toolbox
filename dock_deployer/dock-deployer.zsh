@@ -60,8 +60,8 @@ RESET=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT_PATH="$2"; shift 2 ;;
-    --remove) IFS=',' read -rA REMOVE_LABELS <<< "$2"; shift 2 ;;
-    --add) IFS=',' read -rA ADD_APPS <<< "$2"; shift 2 ;;
+    --remove) IFS=, read -rA REMOVE_LABELS <<< "$2"; shift 2 ;;
+    --add) IFS=, read -rA ADD_APPS <<< "$2"; shift 2 ;;
     --hide-recents) HIDE_RECENTS=true; shift ;;
     --forced) FORCED=true; shift ;;
     --uninstall) UNINSTALL=true; shift ;;
@@ -71,8 +71,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-REMOVE_CSV="${(j:,: )REMOVE_LABELS}"
-ADD_CSV="${(j:,: )ADD_APPS}"
+# -------- Portable array join --------
+{ IFS=,; REMOVE_CSV="${REMOVE_LABELS[*]}"; }
+{ IFS=,; ADD_CSV="${ADD_APPS[*]}"; }
 
 # -------- Reset Dock --------
 if $RESET; then
@@ -181,7 +182,7 @@ def is_match(item):
     bid=(td.get("bundle-identifier") or "").lower()
     if "maps" in labels_lower and bid=="com.apple.maps": return True
     if "news" in labels_lower and bid=="com.apple.news": return True
-    path=(td.get("file-data",{}).get("_CFURLString") or "").lower()
+    path=(td.get("tile-data",{}).get("file-data",{}).get("_CFURLString") or "").lower()
     m=re.search(r"/applications/([^/]+)\.app", path or "")
     return m and m.group(1).replace("-", " ").lower() in labels_lower
 
