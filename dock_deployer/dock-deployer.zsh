@@ -246,7 +246,7 @@ mobileconfig = {
     "PayloadVersion": 1,
     "PayloadIdentifier": f"com.example.dock.export.{profile_uuid}",
     "PayloadUUID": profile_uuid,
-    "PayloadDisplayName": f"Dock Deploy ({datetime.datetime.now().strftime('%Y-%m-%d')})",
+    "PayloadDisplayName": "Dock Deploy (" + datetime.datetime.now().strftime('%Y-%m-%d') + ")",
     "PayloadRemovalDisallowed": False,
     "PayloadContent": [payload],
 }
