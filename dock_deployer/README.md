@@ -92,11 +92,11 @@ dock-deployer --forced --out ~/Desktop/MyDock.mobileconfig
 If you already have a profile file such as `Dock_export-MyMac.mobileconfig` copied to another Mac, you can install or remove it without using the script:
 
 **Install the profile:**
-```bash
-sudo profiles -I -F ~/Desktop/Dock_export-MyMac.mobileconfig
-```
+- Double-click the `.mobileconfig` file in Finder, or  
+- Go to **System Settings → Privacy & Security → Profiles** and click the `+` to add it.
 
 **Remove the profile:**
+You can still remove it from the command line (sudo required):
 ```bash
 sudo profiles -R -F ~/Desktop/Dock_export-MyMac.mobileconfig
 ```
