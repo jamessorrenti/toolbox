@@ -27,7 +27,11 @@ curl -L -o ~/Downloads/dock-deployer.zsh https://raw.githubusercontent.com/james
 
 Run it:
 ```bash
+# See available options
 ~/Downloads/dock-deployer.zsh --help
+
+# Quick export of your current Dock (no edits, just writes a .mobileconfig)
+~/Downloads/dock-deployer.zsh --export-only
 ```
 
 ### Option 2: Install globally (recommended for reuse)
@@ -45,24 +49,25 @@ dock-deployer --help
 
 ## Usage
 
-### Export current Dock and set once (default, non-persistent)
+### Export current Dock only (no edits applied)
 ```bash
-dock-deployer --remove "Maps,News" --add "/Applications/Slack.app" --hide-recents
+dock-deployer --export-only
 ```
+This writes your current Dock configuration to `~/Desktop/Dock_export-<hostname>.mobileconfig` without changing your Dock at all.
+
+---
+
+### Edit current Dock (set once) *and* export to file
+```bash
+dock-deployer --remove "Maps,News" --add "/Applications/Slack.app" --hide-recents --export
+```
+This applies changes to your Dock immediately (non-persistent) **and** writes a `.mobileconfig` to `~/Desktop/Dock_export-<hostname>.mobileconfig`.
+
+---
 
 ### Reset Dock to defaults, then apply edits
 ```bash
 dock-deployer --reset --remove "Maps,News" --add "/Applications/Slack.app" --hide-recents
-```
-
-### Also export a .mobileconfig while applying edits
-```bash
-dock-deployer --remove "Maps,News" --add "/Applications/Slack.app" --hide-recents --export
-```
-
-### Export-only (generate a .mobileconfig, then restore Dock)
-```bash
-dock-deployer --remove "Maps,News" --add "/Applications/Slack.app" --hide-recents --export-only
 ```
 
 ### Force a persistent managed profile
