@@ -39,22 +39,6 @@ Options:
   --forced                           Install as a persistent managed profile
   --uninstall                        Uninstall the profile file at --out
   --help                             Show this help
-
-Examples:
-  # One-time edit (default):
-  ./dock-deployer.zsh --remove "Maps,News" --add "/Applications/Slack.app" --hide-recents
-
-  # Reset Dock to defaults, then edit:
-  ./dock-deployer.zsh --reset --remove "Maps,News" --add "/Applications/Slack.app" --hide-recents
-
-  # Also export a .mobileconfig (no install):
-  ./dock-deployer.zsh --remove "Maps,News" --add "/Applications/Slack.app" --hide-recents --export
-
-  # Export-only (create file, then restore Dock to prior state):
-  ./dock-deployer.zsh --remove "Maps,News" --add "/Applications/Slack.app" --hide-recents --export-only
-
-  # Force a persistent managed profile (writes file and installs it):
-  ./dock-deployer.zsh --remove "Maps" --add "/Applications/Slack.app" --hide-recents --forced
 USAGE
 }
 
