@@ -5,6 +5,15 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.10.1
+
+### Fixed
+
+- **Events shifted by one day** when the Apps Script project's timezone differs from the spreadsheet's timezone. Apps Script reads typed Date cells as midnight-in-spreadsheet-TZ instants; if the project ran in a different TZ, JS Date math/formatting would shift the day. Fixed by normalizing every Date read from the spreadsheet (source event dates and the calendar control's start date) to a project-TZ-local Date at the same Y/M/D the spreadsheet displays. The rest of the script keeps using project-local JS Date math as before.
+- **How to verify your sheet was affected**: open **Extensions → Apps Script → Project Settings → Time zone**, then in the sheet **File → Settings → Time zone**. If those two values differed and your source dates are typed Date cells (not text), you were hitting this bug.
+
+---
+
 ## v13.10.0
 
 ### Added

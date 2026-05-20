@@ -140,7 +140,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.10.0",
+  version: "13.10.1",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -1859,7 +1859,7 @@ function readControls(sheet) {
 
   const monthCount = Number(monthCountRaw);
   const startDate = startDateRaw instanceof Date && !isNaN(startDateRaw.getTime())
-    ? normalizeDateToFirstOfMonth_(startDateRaw)
+    ? normalizeDateToFirstOfMonth_(normalizeSpreadsheetDate_(startDateRaw))
     : getStartDateForMode_(period, year);
 
   return { period, year, monthCount, startDate, sourceSpec, filterField, filterValue };
@@ -1875,7 +1875,7 @@ function getLiveControls_(sheet) {
   const filterValue = String(sheet.getRange("B2").getDisplayValue() || "").trim();
 
   const startDate = startDateRaw instanceof Date && !isNaN(startDateRaw.getTime())
-    ? normalizeDateToFirstOfMonth_(startDateRaw)
+    ? normalizeDateToFirstOfMonth_(normalizeSpreadsheetDate_(startDateRaw))
     : getStartDateForMode_(period, year);
 
   return { period, year, monthCount, startDate, sourceSpec, filterField, filterValue };
@@ -2938,7 +2938,7 @@ function parseDateValue(value) {
   if (value === null || value === undefined || value === "") return out;
 
   if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
-    out.push(new Date(value));
+    out.push(normalizeSpreadsheetDate_(value));
     return out;
   }
 
@@ -2996,6 +2996,38 @@ function parseSingleDate(text) {
 
 function dateKey(date) {
   return Utilities.formatDate(new Date(date), Session.getScriptTimeZone(), "yyyy-MM-dd");
+}
+
+// The spreadsheet's timezone — used only when normalizing typed Date cells
+// read from the sheet. Cached because each lookup is a service call.
+let __CACHED_CALENDAR_TZ = null;
+function calendarTimeZone_() {
+  if (__CACHED_CALENDAR_TZ) return __CACHED_CALENDAR_TZ;
+  try {
+    __CACHED_CALENDAR_TZ = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  } catch (err) {
+    __CACHED_CALENDAR_TZ = Session.getScriptTimeZone();
+  }
+  return __CACHED_CALENDAR_TZ;
+}
+
+// Apps Script reads typed Date cells as midnight-in-spreadsheet-TZ instants.
+// If the Apps Script project's timezone differs from the spreadsheet's
+// (a project created in a different region, a user who travelled, etc.),
+// JS Date getters/formatters interpret that instant in the project TZ and
+// the day can shift by one. This helper extracts the Y/M/D the spreadsheet
+// actually shows for that instant and reconstructs a Date at midnight in the
+// project TZ, so the rest of the script can use plain JS Date math safely.
+function normalizeSpreadsheetDate_(value) {
+  if (Object.prototype.toString.call(value) !== "[object Date]") return value;
+  if (isNaN(value.getTime())) return value;
+
+  const ssTz = calendarTimeZone_();
+  const scriptTz = Session.getScriptTimeZone();
+  if (ssTz === scriptTz) return value;
+
+  const ymd = Utilities.formatDate(value, ssTz, "yyyy-MM-dd").split("-");
+  return new Date(Number(ymd[0]), Number(ymd[1]) - 1, Number(ymd[2]));
 }
 
 function findColumnIndex(headers, candidates) {
