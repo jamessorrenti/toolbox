@@ -151,7 +151,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.12.1",
+  version: "13.12.2-debug",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -846,29 +846,46 @@ function scheduledAutoRefresh_() {
 // source data tab. Sets a shared "last source change" timestamp so that the
 // next time anyone switches to a calendar tab, it knows whether to refresh.
 function handleSourceEdit_(e) {
-  if (!e || !e.range) return;
+  if (!e || !e.range) {
+    Logger.log("[AR] handleSourceEdit_: no event/range");
+    return;
+  }
 
   const sheet = e.range.getSheet();
   const ss = sheet.getParent();
+  const sheetName = sheet.getName();
 
-  // applyKeyOverrides_ must run before isAutoRefreshEnabled_ — otherwise
-  // CALENDAR.autoRefresh is at the script default in this fresh JS context
-  // and the Key's value isn't reflected.
-  try { applyKeyOverrides_(ss); } catch (err) { return; }
-  if (!isAutoRefreshEnabled_()) return;
+  try { applyKeyOverrides_(ss); } catch (err) {
+    Logger.log("[AR] handleSourceEdit_: applyKeyOverrides_ threw: " + err.message);
+    return;
+  }
 
-  if (sheet.getName() !== CALENDAR.defaultDataSheetName) return;
+  const enabled = isAutoRefreshEnabled_();
+  const dataSheetName = CALENDAR.defaultDataSheetName;
+  Logger.log(
+    "[AR] src edit on '" + sheetName + "' — datasheet='" + dataSheetName +
+    "', enabled=" + enabled + ", col=" + e.range.getColumn()
+  );
+
+  if (!enabled) return;
+  if (sheetName !== dataSheetName) {
+    Logger.log("[AR]   sheet name mismatch, skipping");
+    return;
+  }
 
   let headers = [];
-  try {
-    headers = readHeaders_(sheet);
-  } catch (err) {}
-  if (!isRelevantSourceEdit_(e.range, headers)) return;
+  try { headers = readHeaders_(sheet); } catch (err) {}
+  const relevant = isRelevantSourceEdit_(e.range, headers);
+  Logger.log("[AR]   headers=" + JSON.stringify(headers) + ", relevant=" + relevant);
+  if (!relevant) return;
 
   try {
     PropertiesService.getDocumentProperties()
       .setProperty(AUTO_REFRESH.lastSourceChangeKey, String(Date.now()));
-  } catch (err) {}
+    Logger.log("[AR]   stamped lastSourceChangeAt=" + Date.now());
+  } catch (err) {
+    Logger.log("[AR]   could not set property: " + err.message);
+  }
 }
 
 // Filter: only count edits to columns the renderer actually consumes. Other
@@ -2174,40 +2191,52 @@ function onEdit(e) {
 }
 
 function onSelectionChange(e) {
-  // Auto-Refresh hook: if the user just switched to a calendar tab and that
-  // calendar is stale (source edits since its last refresh), re-render it.
-  // No-op when the sheet didn't change or Auto-Refresh is disabled in the Key.
-  if (!e || !e.range) return;
+  if (!e || !e.range) { Logger.log("[AR] onSelectionChange: no event/range"); return; }
 
   let userProps;
-  try {
-    userProps = PropertiesService.getUserProperties();
-  } catch (err) {
+  try { userProps = PropertiesService.getUserProperties(); } catch (err) {
+    Logger.log("[AR] onSelectionChange: UserProperties unavailable: " + err.message);
     return;
   }
 
   const sheet = e.range.getSheet();
   const sheetId = String(sheet.getSheetId());
+  const sheetName = sheet.getName();
   const prevSheetId = userProps.getProperty(AUTO_REFRESH.lastActiveSheetKey);
-
-  // Always update the "last active sheet" tracker so the next event has
-  // accurate comparison data — even if we end up not refreshing.
   userProps.setProperty(AUTO_REFRESH.lastActiveSheetKey, sheetId);
 
-  // Cheap filters first to avoid Key reads on every cell click.
-  if (prevSheetId === sheetId) return; // Same sheet, just a cell move.
-  if (!isCalendarSheet(sheet)) return;
-  if (!isCalendarStale_(sheet)) return;
+  Logger.log(
+    "[AR] sel chg: sheet='" + sheetName + "' (id=" + sheetId +
+    ") prev=" + prevSheetId
+  );
 
-  // About to act — now apply Key overrides and gate on the Key toggle.
+  if (prevSheetId === sheetId) {
+    Logger.log("[AR]   same sheet, cell move only");
+    return;
+  }
+  const isCal = isCalendarSheet(sheet);
+  Logger.log("[AR]   isCalendarSheet=" + isCal);
+  if (!isCal) return;
+
+  const stale = isCalendarStale_(sheet);
+  Logger.log("[AR]   isCalendarStale_=" + stale);
+  if (!stale) return;
+
   const ss = sheet.getParent();
-  try { applyKeyOverrides_(ss); } catch (err) { return; }
-  if (!isAutoRefreshEnabled_()) return;
+  try { applyKeyOverrides_(ss); } catch (err) {
+    Logger.log("[AR]   applyKeyOverrides_ threw: " + err.message);
+    return;
+  }
+  const enabled = isAutoRefreshEnabled_();
+  Logger.log("[AR]   autoRefresh enabled=" + enabled);
+  if (!enabled) return;
 
+  Logger.log("[AR]   refreshing '" + sheetName + "'");
   try {
     renderCalendarSheet(sheet);
+    Logger.log("[AR]   refresh complete");
   } catch (err) {
-    Logger.log("auto-refresh on tab switch failed: " + err.message);
+    Logger.log("[AR]   refresh failed: " + err.message);
   }
 }
 
