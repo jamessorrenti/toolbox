@@ -1224,6 +1224,38 @@ function importTheme() {
     return;
   }
 
+  // Target: prompt only when active sheet is a calendar tab. From the Key
+  // tab or a regular data tab the only sensible target is the Key.
+  const activeSheet = ss.getActiveSheet();
+  let target = "key";
+  if (isCalendarSheet(activeSheet)) {
+    const choice = ui.alert(
+      "Apply theme",
+      'Apply "' + picked.name + '" to which target?\n\n' +
+      '• YES — only the active calendar tab "' + activeSheet.getName() + '"\n' +
+      '  (creates per-tab override columns if not present)\n\n' +
+      '• NO — the Key tab (affects every calendar without its own override)\n\n' +
+      '• CANCEL — abort',
+      ui.ButtonSet.YES_NO_CANCEL
+    );
+    if (choice === ui.Button.YES) target = "tab";
+    else if (choice === ui.Button.NO) target = "key";
+    else return;
+  }
+
+  if (target === "tab") {
+    if (!hasPerTabOverride_(activeSheet)) addPerTabOverride_(activeSheet);
+    const changes = applyThemeToTabOverride_(activeSheet, theme);
+    ss.toast(
+      'Theme "' + picked.name + '" applied to "' + activeSheet.getName() + '" — ' +
+        changes.colors + ' colors, ' + changes.setup +
+        ' setup options updated. Refresh this calendar to see it.',
+      CALENDAR.menuName,
+      8
+    );
+    return;
+  }
+
   let keySheet = ss.getSheetByName(CALENDAR.keySheetName);
   if (!keySheet) {
     keySheet = ss.insertSheet(CALENDAR.keySheetName);
@@ -1232,10 +1264,59 @@ function importTheme() {
 
   const changes = applyThemeToKey_(keySheet, theme);
   ss.toast(
-    'Theme "' + picked.name + '" applied — ' + changes.colors + ' colors, ' + changes.setup + ' setup options updated. Refresh All Calendars to see it.',
+    'Theme "' + picked.name + '" applied to Key — ' +
+      changes.colors + ' colors, ' + changes.setup +
+      ' setup options updated. Refresh All Calendars to see it.',
     CALENDAR.menuName,
     8
   );
+}
+
+// Writes a theme into a calendar tab's per-tab override band (H–M). The band
+// must already exist (caller is responsible for addPerTabOverride_).
+// Skips theme.setup entries that aren't in perTabOverrideSetupOptions_(), so a
+// theme can be shared with the Key-target flow even if it sets excluded
+// options like showInitialMenu.
+function applyThemeToTabOverride_(sheet, theme) {
+  let colorChanges = 0;
+  let setupChanges = 0;
+
+  const setupOptions = perTabOverrideSetupOptions_();
+  const appearanceOptions = KEY_APPEARANCE_OPTIONS;
+
+  if (theme.colors && typeof theme.colors === "object" && appearanceOptions.length > 0) {
+    const values = sheet.getRange(
+      PER_TAB_OVERRIDE.dataStartRow,
+      PER_TAB_OVERRIDE.appearanceNameCol,
+      appearanceOptions.length,
+      2
+    ).getValues();
+    for (let i = 0; i < values.length; i++) {
+      const appearance = String(values[i][0] || "").trim();
+      if (!appearance) continue;
+      if (!Object.prototype.hasOwnProperty.call(theme.colors, appearance)) continue;
+      const newColor = String(theme.colors[appearance] || "").trim();
+      if (!looksLikeColor_(newColor)) continue;
+      const row = PER_TAB_OVERRIDE.dataStartRow + i;
+      sheet.getRange(row, PER_TAB_OVERRIDE.appearanceValueCol)
+        .setValue(newColor)
+        .setBackground(newColor)
+        .setFontColor(readableTextColor_(newColor));
+      colorChanges++;
+    }
+  }
+
+  if (theme.setup && typeof theme.setup === "object") {
+    Object.keys(theme.setup).forEach(option => {
+      const idx = setupOptions.indexOf(option);
+      if (idx < 0) return;
+      const row = PER_TAB_OVERRIDE.dataStartRow + idx;
+      sheet.getRange(row, PER_TAB_OVERRIDE.setupValueCol).setValue(theme.setup[option]);
+      setupChanges++;
+    });
+  }
+
+  return { colors: colorChanges, setup: setupChanges };
 }
 
 function fetchThemeManifest_() {
