@@ -140,7 +140,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.10.3",
+  version: "13.10.4-debug",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -430,10 +430,22 @@ function refreshAllCalendars() {
     return;
   }
 
+  // Diagnostic: write enough to logs to debug date-shift issues. View via
+  // Extensions > Apps Script > Executions > [most recent run].
+  applyKeyOverrides_(ss);
+  Logger.log("[v" + CALENDAR.version + "] refreshAllCalendars");
+  Logger.log("  calendarTimeZone_ (spreadsheet TZ): " + calendarTimeZone_());
+  Logger.log("  Session.getScriptTimeZone (script TZ): " + Session.getScriptTimeZone());
+  Logger.log("  CALENDAR.defaultDataSheetName: " + CALENDAR.defaultDataSheetName);
+  Logger.log("  CALENDAR.setup.customDate: " + CALENDAR.setup.customDate);
+  Logger.log("  CALENDAR.setup.startWeekOn: " + CALENDAR.setup.startWeekOn);
+
   showWorkingModal("Refreshing all calendars...");
 
   let refreshed = 0;
   const failures = [];
+
+  __DEBUG_DATE_PARSE_REMAINING = 3;
 
   withRenderSession_(() => {
     calendarSheets.forEach((sheet) => {
@@ -2937,17 +2949,39 @@ function columnToLetter(columnNumber) {
   return columnLetter;
 }
 
+// Diagnostic counter — reset per refreshAllCalendars run; logs the first few
+// source-row date parses so we can see what's going wrong with TZ math.
+let __DEBUG_DATE_PARSE_REMAINING = 0;
+
 function parseDateValue(value) {
   const out = [];
   if (value === null || value === undefined || value === "") return out;
 
   if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
-    out.push(normalizeSpreadsheetDate_(value));
+    const normalized = normalizeSpreadsheetDate_(value);
+    if (__DEBUG_DATE_PARSE_REMAINING > 0) {
+      __DEBUG_DATE_PARSE_REMAINING--;
+      Logger.log("  parseDateValue Date branch:");
+      Logger.log("    raw input toISOString: " + value.toISOString());
+      Logger.log("    raw input.getTime(): " + value.getTime());
+      Logger.log("    normalized toISOString: " + normalized.toISOString());
+      Logger.log("    normalized dateKey: " + dateKey(normalized));
+      Logger.log("    normalize was no-op: " + (normalized === value));
+    }
+    out.push(normalized);
     return out;
   }
 
   const text = String(value).trim();
   if (!text) return out;
+
+  if (__DEBUG_DATE_PARSE_REMAINING > 0) {
+    __DEBUG_DATE_PARSE_REMAINING--;
+    Logger.log("  parseDateValue text branch:");
+    Logger.log("    raw input: " + JSON.stringify(value));
+    Logger.log("    typeof: " + (typeof value));
+    Logger.log("    trimmed text: " + JSON.stringify(text));
+  }
 
   // Only treat as a range if the separator is surrounded by whitespace.
   // Prevents titles like "Roadshow - East" or ISO dates like "2026-05-04" from being mis-read.
