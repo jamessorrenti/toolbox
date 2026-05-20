@@ -5,6 +5,29 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.10.0
+
+### Added
+
+- **Import Theme** menu item. Fetches a theme manifest from a public repo (`UrlFetchApp.fetch` against `raw.githubusercontent.com`), prompts you to pick one, fetches the chosen theme's JSON, and writes its colors / setup options into the Key tab.
+- Six starter themes in `calendar-view-builder/themes/`:
+  - **Berry** — current default; deep purple title, magenta / teal / blue months.
+  - **Grayscale** — pure monochrome.
+  - **Dark Mode** — dark backgrounds, light text.
+  - **Sunset** — warm oranges, corals, dusky pinks.
+  - **Pastels** — soft lavender / blush / sage / sky.
+  - **Retro Console** — black + neon-green + Courier New (Matrix terminal vibes). Demonstrates a theme overriding both colors and `setup` (specifically `fontFamily`).
+- `showImportThemeMenu` toggle (default `TRUE` in script, `FALSE` in Key) gates the new menu item.
+- `CALENDAR.themes` config block exposes `indexUrl` and `baseUrl`. Fork the repo and edit these to host private/internal themes.
+- README has a new **Import Theme** section documenting the theme schema, the bundled themes, and how to point at a forked repo.
+
+### Notes
+
+- Themes can override anything in `CALENDAR.colors` or `CALENDAR.setup`. Unknown keys are ignored. Color values must look like CSS hex (e.g. `#00FF41`).
+- The first time you run **Import Theme**, Google will prompt you to authorize the new `script.external_request` OAuth scope. Required once, then silent.
+
+---
+
 ## v13.9.0
 
 ### Added

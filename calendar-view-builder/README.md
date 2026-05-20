@@ -30,6 +30,14 @@ calendar-view-builder/
   Calendar_View_Builder.gs
   README.md
   CHANGELOG.md
+  themes/
+    index.json
+    berry.json
+    grayscale.json
+    dark-mode.json
+    sunset.json
+    pastels.json
+    retro-console.json
 ```
 
 `Calendar_View_Builder.gs` is the Apps Script file to paste into a Google Sheets-bound Apps Script project.
@@ -168,6 +176,7 @@ After reloading the spreadsheet, the script adds a custom menu called **Calendar
 | Add Jan-Dec | Creates one tab for each month | — |
 | Create Event List | Creates an event list tab with the default headers, if one does not exist. Auto-runs the Key Configurator when the `Key` tab is present. | `showEventListMenu` |
 | Set Key From Event List | Walk-through that reads an existing event list and writes its Date / Title / Type / Category / Status values into the Key tab | `showSetKeyFromEventListMenu` |
+| Import Theme | Fetches a list of themes from a public repo and writes the chosen one into the Key tab | `showImportThemeMenu` |
 | Run key configurator | Applies both validation and Category colors to the event list | `showKeyConfiguratorMenuItems` |
 | Set key-based validation | Applies just the validation step | `showKeyConfiguratorMenuItems` |
 | Set key-based colors | Applies just the conditional formatting step | `showKeyConfiguratorMenuItems` |
@@ -182,6 +191,7 @@ Four toggles in the `Key` tab's **Additional Setup** block control which menu se
 | `showInitialMenu` | `FALSE` | **Initial Setup** |
 | `showEventListMenu` | `FALSE` | **Create Event List** |
 | `showSetKeyFromEventListMenu` | `FALSE` | **Set Key From Event List** |
+| `showImportThemeMenu` | `FALSE` | **Import Theme** |
 | `showKeyConfiguratorMenuItems` | `FALSE` | **Run key configurator**, **Set key-based validation**, **Set key-based colors** |
 
 Reload the spreadsheet after flipping a toggle for the menu to re-render.
@@ -208,6 +218,77 @@ The flow:
    - `customDate` and `customTitle` in the setup section are updated to match your choices, and their dropdowns refresh to the new tab's headers.
 
 The walk-through never touches the event list tab itself. If the Key tab does not exist, it is created first.
+
+---
+
+## Import Theme
+
+`Calendar Tools > Import Theme` pulls themes from a public repo and writes the chosen palette into the Key tab.
+
+The flow:
+
+1. The script fetches a manifest (`index.json`) from the configured theme repo.
+2. A numbered prompt lists every theme with its description.
+3. You pick by number or by name.
+4. The script fetches that theme's JSON and writes its `colors` into the Key tab's **Appearance** section (column O), and any optional `setup` values into the **Additional Setup** section.
+5. Refresh All Calendars to see the new theme.
+
+The default registry ships with these themes:
+
+| Theme | Vibe |
+|---|---|
+| **Berry** | Deep purple title, magenta/teal/blue month rotation. The current default. |
+| **Grayscale** | Pure monochrome. Title near-black, months cycle through dark, medium, light gray. |
+| **Dark Mode** | Dark backgrounds, light text. Blue, green, and purple month accents. |
+| **Sunset** | Warm oranges, corals, and dusky pinks. |
+| **Pastels** | Soft muted pastels — lavender, blush, sage, sky. |
+| **Retro Console** | Black background, neon green text, Courier New monospace. Matrix terminal vibes. |
+
+### Theme schema
+
+A theme file is a small JSON document:
+
+```json
+{
+  "name": "Theme Display Name",
+  "description": "Short tagline shown in the picker.",
+  "colors": {
+    "titleBackground": "#000000",
+    "titleFontColor": "#FFFFFF"
+  },
+  "setup": {
+    "fontFamily": "Courier New"
+  }
+}
+```
+
+- `colors` keys must match entries in `CALENDAR.colors` (e.g. `titleBackground`, `month1HeaderBackground`, `eventDefaultBackground`). Unknown keys are ignored.
+- `setup` keys must match entries in `CALENDAR.setup` (e.g. `fontFamily`, `dateFormat`, `customAdditionalLabelsStyle`). Unknown keys are ignored.
+- `colors` and `setup` are both optional. A theme can be colors-only, setup-only, or both.
+
+The manifest (`index.json`) lists available themes:
+
+```json
+{
+  "version": 1,
+  "themes": [
+    { "name": "Berry", "file": "berry.json", "description": "..." }
+  ]
+}
+```
+
+### Using your own theme repo
+
+The theme URLs are read from `CALENDAR.themes` at the top of `Calendar_View_Builder.gs`:
+
+```js
+themes: {
+  indexUrl: "https://raw.githubusercontent.com/jamessorrenti/toolbox/main/calendar-view-builder/themes/index.json",
+  baseUrl: "https://raw.githubusercontent.com/jamessorrenti/toolbox/main/calendar-view-builder/themes/"
+}
+```
+
+Fork the repo (or host your own), point these URLs at your fork, and **Import Theme** will pull from your set. The script uses `UrlFetchApp.fetch` and only requires that the URLs be HTTP-reachable from Google's network.
 
 ---
 
@@ -317,6 +398,7 @@ Setup options are generated from the script defaults. The `Key` tab can override
 | `showInitialMenu` | `TRUE` | `FALSE` | Show the **Initial Setup** menu item |
 | `showEventListMenu` | `TRUE` | `FALSE` | Show the **Create Event List** menu item |
 | `showSetKeyFromEventListMenu` | `TRUE` | `FALSE` | Show the **Set Key From Event List** menu item |
+| `showImportThemeMenu` | `TRUE` | `FALSE` | Show the **Import Theme** menu item |
 | `showKeyConfiguratorMenuItems` | `TRUE` | `FALSE` | Show the three Key Configurator menu items |
 | `frozenWeekdayHeader` | `TRUE` | `FALSE` | Show a frozen weekday header row |
 | `customDate` | `Date` | `Date` | Source column used for event dates. Dropdown of headers from `defaultDataSheetName`; accepts custom names. |
@@ -604,5 +686,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.9.0
+v13.10.0
 ```

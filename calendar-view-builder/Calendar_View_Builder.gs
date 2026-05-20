@@ -79,6 +79,11 @@ function onOpen() {
     "showSetKeyFromEventListMenu",
     CALENDAR.showSetKeyFromEventListMenu
   );
+  const showImportThemeMenu = getKeyBooleanOption_(
+    ss,
+    "showImportThemeMenu",
+    CALENDAR.showImportThemeMenu
+  );
   const showKeyConfiguratorMenuItems = getKeyBooleanOption_(
     ss,
     "showKeyConfiguratorMenuItems",
@@ -111,6 +116,11 @@ function onOpen() {
     menu.addItem("Set Key From Event List", "setKeyFromEventList");
   }
 
+  if (showImportThemeMenu) {
+    if (!showEventListMenu && !showSetKeyFromEventListMenu) menu.addSeparator();
+    menu.addItem("Import Theme", "importTheme");
+  }
+
   if (showKeyConfiguratorMenuItems) {
     menu.addSeparator()
       .addItem("Run key configurator", "runKeyConfigurator")
@@ -130,12 +140,21 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.9.0",
+  version: "13.10.0",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
   showSetKeyFromEventListMenu: true,
+  showImportThemeMenu: true,
   showKeyConfiguratorMenuItems: true,
+
+  // Public theme registry. The index file lists themes; each theme file lives
+  // in the same directory. Fork the toolbox repo and point these URLs at your
+  // fork to ship private/internal themes.
+  themes: {
+    indexUrl: "https://raw.githubusercontent.com/jamessorrenti/toolbox/main/calendar-view-builder/themes/index.json",
+    baseUrl: "https://raw.githubusercontent.com/jamessorrenti/toolbox/main/calendar-view-builder/themes/"
+  },
 
   calendarBaseName: "Calendar View",
   defaultDataSheetName: APP_CONFIG.dataSheetName,
@@ -272,6 +291,7 @@ const KEY_SETUP_OPTIONS = [
   "showInitialMenu",
   "showEventListMenu",
   "showSetKeyFromEventListMenu",
+  "showImportThemeMenu",
   "showKeyConfiguratorMenuItems",
   "frozenWeekdayHeader",
   "customDate",
@@ -295,6 +315,7 @@ const KEY_INITIAL_VALUES = {
   showInitialMenu: false,
   showEventListMenu: false,
   showSetKeyFromEventListMenu: false,
+  showImportThemeMenu: false,
   showKeyConfiguratorMenuItems: false,
   frozenWeekdayHeader: false,
 };
@@ -909,6 +930,139 @@ function updateKeyOptionValue_(keySheet, optionName, value) {
   keySheet.getRange(row, 12).setValue(value);
 }
 
+// Fetch a theme manifest from the configured public repo, prompt the user to
+// pick one, fetch the theme JSON, and write it into the Key tab.
+function importTheme() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+
+  ss.toast("Fetching themes...", CALENDAR.menuName, 3);
+  const manifest = fetchThemeManifest_();
+  if (!manifest || !manifest.length) {
+    ui.alert("Could not load the theme list.\n\nTried: " + CALENDAR.themes.indexUrl + "\n\nCheck your network connection, then try again.");
+    return;
+  }
+
+  const list = manifest.map((t, i) => {
+    const desc = t.description ? " — " + t.description : "";
+    return (i + 1) + ". " + t.name + desc;
+  }).join("\n");
+
+  const response = ui.prompt(
+    "Import Theme",
+    "Pick a theme.\n\nEnter the number, or type the exact theme name:\n\n" + list,
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+
+  const text = String(response.getResponseText() || "").trim();
+  if (!text) return;
+
+  let picked = null;
+  const asNum = Number(text);
+  if (Number.isInteger(asNum) && asNum >= 1 && asNum <= manifest.length) {
+    picked = manifest[asNum - 1];
+  } else {
+    picked = manifest.find(t => String(t.name || "").trim().toLowerCase() === text.toLowerCase());
+  }
+  if (!picked) {
+    ui.alert('No theme matched "' + text + '".');
+    return;
+  }
+
+  ss.toast('Fetching "' + picked.name + '"...', CALENDAR.menuName, 3);
+  const theme = fetchTheme_(picked.file);
+  if (!theme) {
+    ui.alert("Could not load theme \"" + picked.name + "\" from " + CALENDAR.themes.baseUrl + picked.file);
+    return;
+  }
+
+  let keySheet = ss.getSheetByName(CALENDAR.keySheetName);
+  if (!keySheet) {
+    keySheet = ss.insertSheet(CALENDAR.keySheetName);
+    buildKeySheet_(keySheet);
+  }
+
+  const changes = applyThemeToKey_(keySheet, theme);
+  ss.toast(
+    'Theme "' + picked.name + '" applied — ' + changes.colors + ' colors, ' + changes.setup + ' setup options updated. Refresh All Calendars to see it.',
+    CALENDAR.menuName,
+    8
+  );
+}
+
+function fetchThemeManifest_() {
+  try {
+    const response = UrlFetchApp.fetch(CALENDAR.themes.indexUrl, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      Logger.log("Theme manifest HTTP " + response.getResponseCode());
+      return null;
+    }
+    const data = JSON.parse(response.getContentText());
+    return Array.isArray(data.themes) ? data.themes : null;
+  } catch (err) {
+    Logger.log("fetchThemeManifest_ error: " + err.message);
+    return null;
+  }
+}
+
+function fetchTheme_(filename) {
+  try {
+    const response = UrlFetchApp.fetch(CALENDAR.themes.baseUrl + filename, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      Logger.log("Theme " + filename + " HTTP " + response.getResponseCode());
+      return null;
+    }
+    return JSON.parse(response.getContentText());
+  } catch (err) {
+    Logger.log("fetchTheme_ error: " + err.message);
+    return null;
+  }
+}
+
+// Walk the Key tab's appearance section (N:O) and update matching color cells.
+// Walk the setup section (K:L) and update matching option cells. Returns counts.
+function applyThemeToKey_(keySheet, theme) {
+  let colorChanges = 0;
+  let setupChanges = 0;
+
+  if (theme.colors && typeof theme.colors === "object") {
+    const lastRow = keySheet.getLastRow();
+    if (lastRow >= 2) {
+      const range = keySheet.getRange(2, 14, lastRow - 1, 2);
+      const values = range.getValues();
+      for (let i = 0; i < values.length; i++) {
+        const appearance = String(values[i][0] || "").trim();
+        if (!appearance) continue;
+        if (!Object.prototype.hasOwnProperty.call(theme.colors, appearance)) continue;
+        const newColor = String(theme.colors[appearance] || "").trim();
+        if (!looksLikeColor_(newColor)) continue;
+
+        const row = i + 2;
+        keySheet.getRange(row, 15)
+          .setValue(newColor)
+          .setBackground(newColor)
+          .setFontColor(readableTextColor_(newColor));
+        colorChanges++;
+      }
+    }
+  }
+
+  if (theme.setup && typeof theme.setup === "object") {
+    Object.keys(theme.setup).forEach(option => {
+      const row = findKeyOptionRow_(keySheet, option);
+      if (!row) return;
+      keySheet.getRange(row, 12).setValue(theme.setup[option]);
+      setupChanges++;
+    });
+  }
+
+  applyKeyOverrides_(keySheet.getParent());
+  applyKeySetupValidations_(keySheet);
+
+  return { colors: colorChanges, setup: setupChanges };
+}
+
 function buildEventsSheet_(sheet) {
   const headers = ["Title", "Date", "Category", "Type", "Status"];
   const fontFamily = CALENDAR.setup.fontFamily || "Inter";
@@ -991,6 +1145,7 @@ function buildKeySheet_(sheet) {
   setCheckboxIfOption_(sheet, "showInitialMenu");
   setCheckboxIfOption_(sheet, "showEventListMenu");
   setCheckboxIfOption_(sheet, "showSetKeyFromEventListMenu");
+  setCheckboxIfOption_(sheet, "showImportThemeMenu");
   setCheckboxIfOption_(sheet, "showKeyConfiguratorMenuItems");
   setCheckboxIfOption_(sheet, "frozenWeekdayHeader");
   setCheckboxIfOption_(sheet, "customAdditionalLabels");

@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "themes": [
+    {
+      "name": "Berry",
+      "file": "berry.json",
+      "description": "Deep purple title with magenta/teal/blue month rotation (current default)."
+    },
+    {
+      "name": "Grayscale",
+      "file": "grayscale.json",
+      "description": "Pure monochrome — title near-black, months cycle through dark, medium, and light gray."
+    },
+    {
+      "name": "Dark Mode",
+      "file": "dark-mode.json",
+      "description": "Dark backgrounds, light text. Blue, green, and purple month accents."
+    },
+    {
+      "name": "Sunset",
+      "file": "sunset.json",
+      "description": "Warm oranges, corals, and dusky pinks."
+    },
+    {
+      "name": "Pastels",
+      "file": "pastels.json",
+      "description": "Soft muted pastels — lavender, blush, sage, sky."
+    },
+    {
+      "name": "Retro Console",
+      "file": "retro-console.json",
+      "description": "Black background, neon green text, monospace font. Matrix terminal vibes."
+    }
+  ]
+}
