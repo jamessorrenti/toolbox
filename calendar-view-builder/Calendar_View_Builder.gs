@@ -1,5 +1,5 @@
 /**
- * Calendar View Generator v13.4.4
+ * Calendar View Generator
  *
  * Generates dynamic, view-only calendar tabs from a local source sheet.
  * Supports create/replace/refresh actions, custom date ranges,
@@ -8,6 +8,8 @@
  * Configure source, dates, filters, and refresh from the top rows.
  *
  * v13 renderer: styles custom additional labels only.
+ *
+ * The version string lives in CALENDAR.version below.
  */
 
 // Global sheet name variables
@@ -15,6 +17,35 @@ const APP_CONFIG = {
   keySheetName: "Key",
   dataSheetName: "Tactics List"
 };
+
+// Per-execution render session. Only active during multi-calendar refreshes;
+// lets loadSourceData / readKeyConfig_ / applyKeyOverrides_ skip duplicate sheet reads.
+const RENDER_SESSION = {
+  active: false,
+  sourceData: Object.create(null),
+  keyConfig: null,
+  keyOverridesApplied: false,
+};
+
+function withRenderSession_(fn) {
+  const wasActive = RENDER_SESSION.active;
+  if (!wasActive) {
+    RENDER_SESSION.active = true;
+    RENDER_SESSION.sourceData = Object.create(null);
+    RENDER_SESSION.keyConfig = null;
+    RENDER_SESSION.keyOverridesApplied = false;
+  }
+  try {
+    return fn();
+  } finally {
+    if (!wasActive) {
+      RENDER_SESSION.active = false;
+      RENDER_SESSION.sourceData = Object.create(null);
+      RENDER_SESSION.keyConfig = null;
+      RENDER_SESSION.keyOverridesApplied = false;
+    }
+  }
+}
 
 // Menu
 function onOpen() {
@@ -58,6 +89,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
+  version: "13.5.0",
   menuName: "Calendar Tools",
   showKeyConfiguratorMenuItems: true,
 
@@ -252,13 +284,23 @@ function newCalendarSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const period = currentMonthName();
   const year = currentYear();
-  const sheet = ss.insertSheet(uniqueSheetName(ss, CALENDAR.calendarBaseName));
+  const sheet = ss.insertSheet(uniqueSheetName(ss, buildCalendarSheetName_(period, year)));
 
   initializeCalendarSheet(sheet, period, year, getDefaultSourceSpec(ss));
   renderCalendarSheet(sheet);
 
   ss.setActiveSheet(sheet);
   ss.toast("New calendar sheet created.", CALENDAR.menuName, 4);
+}
+
+function buildCalendarSheetName_(period, year) {
+  const p = String(period || "").trim();
+  const y = String(year || "").trim();
+
+  if (!p) return CALENDAR.calendarBaseName;
+  if (isCustom(p)) return CALENDAR.calendarBaseName;
+  if (isYear(p)) return y ? ("Year " + y) : "Year";
+  return y ? (p + " " + y) : p;
 }
 
 function replaceWithCalendar() {
@@ -309,14 +351,16 @@ function refreshAllCalendars() {
   let refreshed = 0;
   const failures = [];
 
-  calendarSheets.forEach((sheet) => {
-    try {
-      const controls = getLiveControls_(sheet);
-      renderCalendarSheet(sheet, controls);
-      refreshed++;
-    } catch (err) {
-      failures.push(sheet.getName() + ": " + err.message);
-    }
+  withRenderSession_(() => {
+    calendarSheets.forEach((sheet) => {
+      try {
+        const controls = getLiveControls_(sheet);
+        renderCalendarSheet(sheet, controls);
+        refreshed++;
+      } catch (err) {
+        failures.push(sheet.getName() + ": " + err.message);
+      }
+    });
   });
 
   ss.setActiveSheet(activeSheet);
@@ -421,7 +465,7 @@ function addQ1Q4() {
   showWorkingModal("Creating Q1-Q4 tabs...");
 
   ["Q1", "Q2", "Q3", "Q4"].forEach((period) => {
-    const sheet = ss.insertSheet(uniqueSheetName(ss, period + " " + year));
+    const sheet = ss.insertSheet(uniqueSheetName(ss, buildCalendarSheetName_(period, year)));
     initializeCalendarSheet(sheet, period, year, sourceSpec);
     renderCalendarSheet(sheet);
   });
@@ -437,7 +481,7 @@ function addJanDec() {
   showWorkingModal("Creating Jan-Dec tabs...");
 
   CALENDAR.monthOptions.forEach((period) => {
-    const sheet = ss.insertSheet(uniqueSheetName(ss, period + " " + year));
+    const sheet = ss.insertSheet(uniqueSheetName(ss, buildCalendarSheetName_(period, year)));
     initializeCalendarSheet(sheet, period, year, sourceSpec);
     renderCalendarSheet(sheet);
   });
@@ -724,6 +768,8 @@ function renderCalendarSheet(sheet, controlsOverride) {
     renderMonthSection(sheet, row, monthInfo, eventsByDate, index);
     row += getMonthBlockRows_();
   });
+
+  sheet.setColumnWidths(1, 7, 145);
 }
 
 function rebuildCalendarCanvas(sheet, controls) {
@@ -1262,55 +1308,89 @@ function buildMonthInfos(controls, startDate, monthCount) {
 }
 
 function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndexInView) {
-  const monthName = Utilities.formatDate(monthDate, Session.getScriptTimeZone(), CALENDAR.setup.monthFormat);
+  const tz = Session.getScriptTimeZone();
+  const monthName = Utilities.formatDate(monthDate, tz, CALENDAR.setup.monthFormat);
   const year = monthDate.getFullYear();
   const theme = getMonthTheme(monthIndexInView);
   const maxEvents = getMaxEvents_();
+  const fontFamily = CALENDAR.setup.fontFamily;
 
-  sheet.getRange(startRow, 1, 2, 7)
+  // --- Month title rows (startRow + 0, startRow + 1) ---
+  const titleRange = sheet.getRange(startRow, 1, 2, 7);
+  titleRange.setValues([
+    [monthName, year, "", "", "", "", ""],
+    ["",        "",   "", "", "", "", ""]
+  ]);
+  titleRange
     .setBackground(theme.monthBackground)
     .setFontColor(theme.monthFontColor)
     .setFontWeight("bold")
-    .setFontFamily(CALENDAR.setup.fontFamily)
+    .setFontFamily(fontFamily)
     .setVerticalAlignment("middle");
+  sheet.getRange(startRow, 1, 1, 2)
+    .setFontSize(18)
+    .setHorizontalAlignment("left");
 
-  sheet.getRange(startRow, 1).setValue(monthName).setFontSize(18).setHorizontalAlignment("left");
-  sheet.getRange(startRow, 2).setValue(year).setFontSize(18).setHorizontalAlignment("left");
-  sheet.getRange(startRow, 3, 2, 5).clearContent();
-
+  // --- Weekday header (startRow + 2) ---
   const weekdays = getWeekdayLabels();
-  sheet.getRange(startRow + 2, 1, 1, 7).setValues([weekdays]);
   sheet.getRange(startRow + 2, 1, 1, 7)
+    .setValues([weekdays])
     .setBackground(theme.weekBackground)
     .setFontColor(theme.weekFontColor)
     .setFontWeight("bold")
-    .setFontFamily(CALENDAR.setup.fontFamily)
+    .setFontFamily(fontFamily)
     .setHorizontalAlignment("center")
     .setVerticalAlignment("middle");
 
+  // --- 6-week body grid ---
   const firstOfMonth = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-  const gridStart = new Date(firstOfMonth);
   const weekStartIndex = getWeekStartIndex_();
   const leadingDays = (firstOfMonth.getDay() - weekStartIndex + 7) % 7;
+  const gridStart = new Date(firstOfMonth);
   gridStart.setDate(firstOfMonth.getDate() - leadingDays);
 
   const bodyStartRow = startRow + 3;
   const rowsPerWeek = 1 + maxEvents + 1;
   const bodyRows = 6 * rowsPerWeek;
 
-  const body = sheet.getRange(bodyStartRow, 1, bodyRows, 7);
-  body.clear({ contentsOnly: false });
-  body.setFontFamily(CALENDAR.setup.fontFamily);
-  body.setFontSize(9);
-  body.setWrap(true);
-  body.setHorizontalAlignment("left");
-  body.setVerticalAlignment("top");
+  const blankRich = SpreadsheetApp.newRichTextValue().setText("").build();
+
+  const richValues = [];
+  const backgrounds = [];
+  const fontColors = [];
+  const fontWeights = [];
+  const horizontalAlignments = [];
+  const verticalAlignments = [];
+  const notes = [];
 
   for (let week = 0; week < 6; week++) {
-    const dateRow = bodyStartRow + (week * rowsPerWeek);
+    const dateRowRich = new Array(7);
+    const dateRowBg = new Array(7);
+    const dateRowFc = new Array(7);
+    const dateRowFw = new Array(7);
+    const dateRowHa = new Array(7);
+    const dateRowVa = new Array(7);
+    const dateRowNotes = new Array(7);
+
+    const eventRowsRich = [];
+    const eventRowsBg = [];
+    const eventRowsFc = [];
+    const eventRowsFw = [];
+    const eventRowsHa = [];
+    const eventRowsVa = [];
+    const eventRowsNotes = [];
+
+    for (let i = 0; i < maxEvents + 1; i++) {
+      eventRowsRich.push(new Array(7));
+      eventRowsBg.push(new Array(7));
+      eventRowsFc.push(new Array(7));
+      eventRowsFw.push(new Array(7));
+      eventRowsHa.push(new Array(7));
+      eventRowsVa.push(new Array(7));
+      eventRowsNotes.push(new Array(7));
+    }
 
     for (let day = 0; day < 7; day++) {
-      const col = day + 1;
       const cellDate = new Date(gridStart);
       cellDate.setDate(gridStart.getDate() + week * 7 + day);
 
@@ -1321,24 +1401,114 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
       const key = dateKey(cellDate);
       const events = eventsByDate[key] || [];
 
-      const dateCell = sheet.getRange(dateRow, col);
-      dateCell
-        .setValue(formatCalendarDateLabel_(cellDate))
-        .setFontWeight("bold")
-        .setFontColor(inMonth ? theme.daysFontColor : theme.inactiveDaysFontColor)
-        .setBackground(inMonth ? theme.daysBackground : theme.inactiveDaysBackground)
-        .setHorizontalAlignment("left")
-        .setVerticalAlignment("middle")
-        .setBorder(true, true, false, true, false, false, "#d6d6d6", SpreadsheetApp.BorderStyle.SOLID)
-        .clearNote();
+      dateRowRich[day] = SpreadsheetApp.newRichTextValue()
+        .setText(formatCalendarDateLabel_(cellDate))
+        .build();
+      dateRowBg[day] = inMonth ? theme.daysBackground : theme.inactiveDaysBackground;
+      dateRowFc[day] = inMonth ? theme.daysFontColor : theme.inactiveDaysFontColor;
+      dateRowFw[day] = "bold";
+      dateRowHa[day] = "left";
+      dateRowVa[day] = "middle";
+      dateRowNotes[day] = "";
 
-      renderEventRowsForDay_(sheet, dateRow + 1, col, events, key, inMonth, theme, maxEvents);
+      const visibleEvents = events.slice(0, maxEvents);
+      const overflowEvents = events.slice(maxEvents);
+
+      for (let i = 0; i < maxEvents; i++) {
+        const event = visibleEvents[i];
+        let rich = blankRich;
+        let bg = inMonth ? CALENDAR.colors.eventDefaultBackground : theme.inactiveDaysBackground;
+        let fc = inMonth ? CALENDAR.colors.eventDefaultFontColor : theme.inactiveDaysFontColor;
+
+        if (event) {
+          const built = buildEventCellRichText_(event, inMonth, theme);
+          rich = built.rich;
+          bg = built.background;
+          fc = built.fontColor;
+        }
+
+        eventRowsRich[i][day] = rich;
+        eventRowsBg[i][day] = bg;
+        eventRowsFc[i][day] = fc;
+        eventRowsFw[i][day] = "normal";
+        eventRowsHa[i][day] = "left";
+        eventRowsVa[i][day] = "top";
+        eventRowsNotes[i][day] = "";
+      }
+
+      const overflowIdx = maxEvents;
+      if (overflowEvents.length > 0) {
+        const text = overflowEvents.length === 1
+          ? "1 More..."
+          : (overflowEvents.length + " More...");
+        eventRowsRich[overflowIdx][day] = SpreadsheetApp.newRichTextValue().setText(text).build();
+        eventRowsBg[overflowIdx][day] = inMonth ? CALENDAR.colors.overflowBackground : theme.inactiveDaysBackground;
+        eventRowsFc[overflowIdx][day] = inMonth ? CALENDAR.colors.overflowFontColor : theme.inactiveDaysFontColor;
+        eventRowsFw[overflowIdx][day] = "bold";
+        eventRowsHa[overflowIdx][day] = "left";
+        eventRowsVa[overflowIdx][day] = "top";
+        eventRowsNotes[overflowIdx][day] = "Use Calendar Tools > Open Selected to view this date.";
+      } else {
+        eventRowsRich[overflowIdx][day] = blankRich;
+        eventRowsBg[overflowIdx][day] = inMonth ? CALENDAR.colors.eventDefaultBackground : theme.inactiveDaysBackground;
+        eventRowsFc[overflowIdx][day] = inMonth ? CALENDAR.colors.eventDefaultFontColor : theme.inactiveDaysFontColor;
+        eventRowsFw[overflowIdx][day] = "normal";
+        eventRowsHa[overflowIdx][day] = "left";
+        eventRowsVa[overflowIdx][day] = "top";
+        eventRowsNotes[overflowIdx][day] = "";
+      }
     }
 
-    sheet.setRowHeight(dateRow, CALENDAR.layout.dateRowHeight);
-    for (let i = 1; i <= maxEvents + 1; i++) {
-      sheet.setRowHeight(dateRow + i, CALENDAR.layout.eventRowHeight);
+    richValues.push(dateRowRich);
+    backgrounds.push(dateRowBg);
+    fontColors.push(dateRowFc);
+    fontWeights.push(dateRowFw);
+    horizontalAlignments.push(dateRowHa);
+    verticalAlignments.push(dateRowVa);
+    notes.push(dateRowNotes);
+
+    for (let i = 0; i < maxEvents + 1; i++) {
+      richValues.push(eventRowsRich[i]);
+      backgrounds.push(eventRowsBg[i]);
+      fontColors.push(eventRowsFc[i]);
+      fontWeights.push(eventRowsFw[i]);
+      horizontalAlignments.push(eventRowsHa[i]);
+      verticalAlignments.push(eventRowsVa[i]);
+      notes.push(eventRowsNotes[i]);
     }
+  }
+
+  const body = sheet.getRange(bodyStartRow, 1, bodyRows, 7);
+  body.clear({ contentsOnly: false });
+  body.setFontFamily(fontFamily);
+  body.setFontSize(9);
+  body.setWrap(true);
+  body.setRichTextValues(richValues);
+  body.setBackgrounds(backgrounds);
+  body.setFontColors(fontColors);
+  body.setFontWeights(fontWeights);
+  body.setHorizontalAlignments(horizontalAlignments);
+  body.setVerticalAlignments(verticalAlignments);
+  body.setNotes(notes);
+
+  // Borders: top on each week's date row, bottom on the overflow row, left+right throughout.
+  for (let week = 0; week < 6; week++) {
+    const dateRow = bodyStartRow + week * rowsPerWeek;
+    sheet.getRange(dateRow, 1, 1, 7)
+      .setBorder(true, true, false, true, false, false, "#d6d6d6", SpreadsheetApp.BorderStyle.SOLID);
+    if (maxEvents > 0) {
+      sheet.getRange(dateRow + 1, 1, maxEvents, 7)
+        .setBorder(false, true, false, true, false, false, "#d6d6d6", SpreadsheetApp.BorderStyle.SOLID);
+    }
+    sheet.getRange(dateRow + maxEvents + 1, 1, 1, 7)
+      .setBorder(false, true, true, true, false, false, "#d6d6d6", SpreadsheetApp.BorderStyle.SOLID);
+  }
+
+  // Row heights — batched per week.
+  for (let week = 0; week < 6; week++) {
+    const dateRow = bodyStartRow + week * rowsPerWeek;
+    sheet.setRowHeights(dateRow, 1, CALENDAR.layout.dateRowHeight);
+    sheet.setRowHeights(dateRow + 1, maxEvents + 1, CALENDAR.layout.eventRowHeight);
   }
 
   const spacerRow = bodyStartRow + bodyRows;
@@ -1348,70 +1518,15 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
   sheet.setRowHeight(startRow, 34);
   sheet.setRowHeight(startRow + 1, 24);
   sheet.setRowHeight(startRow + 2, 26);
-
-  for (let c = 1; c <= 7; c++) {
-    sheet.setColumnWidth(c, 145);
-  }
 }
 
-
-function formatCalendarDateLabel_(date) {
-  const format = String(CALENDAR.setup.dateFormat || "F").trim() || "F";
-  return Utilities.formatDate(new Date(date), Session.getScriptTimeZone(), format);
-}
-
-function renderEventRowsForDay_(sheet, firstEventRow, col, events, dateKeyValue, inMonth, theme, maxEvents) {
-  const visibleEvents = events.slice(0, maxEvents);
-  const overflowEvents = events.slice(maxEvents);
-
-  for (let i = 0; i < maxEvents; i++) {
-    const cell = sheet.getRange(firstEventRow + i, col);
-    clearEventCell_(cell, inMonth, theme, false);
-
-    if (i < visibleEvents.length) {
-      setEventCell_(cell, visibleEvents[i], inMonth, theme);
-    }
-  }
-
-  const overflowCell = sheet.getRange(firstEventRow + maxEvents, col);
-  clearEventCell_(overflowCell, inMonth, theme, true);
-
-  if (overflowEvents.length > 0) {
-    setOverflowCell_(overflowCell, overflowEvents.length, dateKeyValue, inMonth, theme);
-  }
-}
-
-
-
-
-
-
-
-function clearEventCell_(cell, inMonth, theme, isLastEventRow) {
-  cell
-    .clearContent()
-    .clearNote()
-    .setFontFamily(CALENDAR.setup.fontFamily)
-    .setFontSize(9)
-    .setFontWeight("normal")
-    .setFontColor(inMonth ? CALENDAR.colors.eventDefaultFontColor : theme.inactiveDaysFontColor)
-    .setBackground(inMonth ? CALENDAR.colors.eventDefaultBackground : theme.inactiveDaysBackground)
-    .setHorizontalAlignment("left")
-    .setVerticalAlignment("top")
-    .setWrap(true)
-    .setBorder(false, true, isLastEventRow, true, false, false, "#d6d6d6", SpreadsheetApp.BorderStyle.SOLID);
-}
-
-function setEventCell_(cell, event, inMonth, theme) {
+function buildEventCellRichText_(event, inMonth, theme) {
   const parts = buildEventDisplayParts_(event);
   const text = parts.text;
   const background = inMonth && looksLikeColor_(event.categoryColor)
     ? event.categoryColor
     : (inMonth ? CALENDAR.colors.eventDefaultBackground : theme.inactiveDaysBackground);
-
-  const fontColor = inMonth
-    ? readableTextColor_(background)
-    : theme.inactiveDaysFontColor;
+  const fontColor = inMonth ? readableTextColor_(background) : theme.inactiveDaysFontColor;
 
   const baseStyle = SpreadsheetApp.newTextStyle()
     .setForegroundColor(fontColor)
@@ -1421,17 +1536,16 @@ function setEventCell_(cell, event, inMonth, theme) {
     .setUnderline(false)
     .build();
 
-  const richTextBuilder = SpreadsheetApp.newRichTextValue()
+  const builder = SpreadsheetApp.newRichTextValue()
     .setText(text)
     .setTextStyle(0, text.length, baseStyle);
 
   if (event.titleUrl || event.url) {
-    richTextBuilder.setLinkUrl(0, parts.titleText.length, event.titleUrl || event.url);
-    richTextBuilder.setTextStyle(0, parts.titleText.length, baseStyle);
+    builder.setLinkUrl(0, parts.titleText.length, event.titleUrl || event.url);
+    builder.setTextStyle(0, parts.titleText.length, baseStyle);
   }
 
   let cursor = parts.titleText.length;
-
   parts.additionalParts.forEach(part => {
     cursor += 1;
     const lineStart = cursor;
@@ -1439,46 +1553,27 @@ function setEventCell_(cell, event, inMonth, theme) {
     const labelEnd = lineStart + Number(part.labelLength || 0);
 
     if (lineEnd > lineStart) {
-      richTextBuilder.setTextStyle(lineStart, lineEnd, baseStyle);
+      builder.setTextStyle(lineStart, lineEnd, baseStyle);
     }
 
     if (labelEnd > lineStart) {
-      richTextBuilder.setTextStyle(
-        lineStart,
-        labelEnd,
-        buildAdditionalLineTextStyle_(part, fontColor)
-      );
+      builder.setTextStyle(lineStart, labelEnd, buildAdditionalLineTextStyle_(part, fontColor));
     }
 
     cursor = lineEnd;
   });
 
-  cell
-    .setRichTextValue(richTextBuilder.build())
-    .setBackground(background)
-    .setFontColor(fontColor)
-    .setVerticalAlignment("top");
+  return { rich: builder.build(), background, fontColor };
+}
+
+
+function formatCalendarDateLabel_(date) {
+  const format = String(CALENDAR.setup.dateFormat || "F").trim() || "F";
+  return Utilities.formatDate(new Date(date), Session.getScriptTimeZone(), format);
 }
 
 
 
-
-
-
-
-function setOverflowCell_(cell, overflowCount, dateKeyValue, inMonth, theme) {
-  const text = overflowCount === 1 ? "1 More..." : overflowCount + " More...";
-  const background = inMonth ? CALENDAR.colors.overflowBackground : theme.inactiveDaysBackground;
-  const fontColor = inMonth ? CALENDAR.colors.overflowFontColor : theme.inactiveDaysFontColor;
-
-  cell
-    .setValue(text)
-    .setBackground(background)
-    .setFontColor(fontColor)
-    .setFontWeight("bold")
-    .setVerticalAlignment("top")
-    .setNote("Use Calendar Tools > Open Selected to view this date.");
-}
 
 
 
@@ -1682,58 +1777,61 @@ function getWeekStartIndex_() {
   return index >= 0 ? index : 0;
 }
 
-
-
-function getWeekStartIndex_() {
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const configured = String(CALENDAR.setup.startWeekOn || "Sunday").trim();
-  const index = days.indexOf(configured);
-
-  return index >= 0 ? index : 0;
-}
-
 function loadSourceData(ss, sourceSpec) {
+  const cacheKey = String(sourceSpec || "");
+
+  if (RENDER_SESSION.active && Object.prototype.hasOwnProperty.call(RENDER_SESSION.sourceData, cacheKey)) {
+    return RENDER_SESSION.sourceData[cacheKey];
+  }
+
   const parsed = resolveSource(ss, sourceSpec);
 
+  let result;
   if (!parsed.sheet) {
-    return {
+    result = {
       spreadsheetName: parsed.spreadsheetName,
       sheetName: parsed.sheetName || "",
       headers: [],
       rows: [],
       sourceMeta: parsed
     };
+  } else {
+    const values = parsed.sheet.getDataRange().getValues();
+
+    if (!values || values.length === 0) {
+      result = {
+        spreadsheetName: parsed.spreadsheetName,
+        sheetName: parsed.sheet.getName(),
+        headers: [],
+        rows: [],
+        sourceMeta: parsed
+      };
+    } else {
+      const headers = values[0].map(v => String(v || "").trim());
+
+      const rows = values
+        .slice(1)
+        .map((row, index) => {
+          row.__sourceRowNumber = index + 2;
+          return row;
+        })
+        .filter(row => row.some(cell => String(cell || "").trim() !== ""));
+
+      result = {
+        spreadsheetName: parsed.spreadsheetName,
+        sheetName: parsed.sheet.getName(),
+        headers,
+        rows,
+        sourceMeta: parsed
+      };
+    }
   }
 
-  const values = parsed.sheet.getDataRange().getValues();
-
-  if (!values || values.length === 0) {
-    return {
-      spreadsheetName: parsed.spreadsheetName,
-      sheetName: parsed.sheet.getName(),
-      headers: [],
-      rows: [],
-      sourceMeta: parsed
-    };
+  if (RENDER_SESSION.active) {
+    RENDER_SESSION.sourceData[cacheKey] = result;
   }
 
-  const headers = values[0].map(v => String(v || "").trim());
-
-  const rows = values
-    .slice(1)
-    .map((row, index) => {
-      row.__sourceRowNumber = index + 2;
-      return row;
-    })
-    .filter(row => row.some(cell => String(cell || "").trim() !== ""));
-
-  return {
-    spreadsheetName: parsed.spreadsheetName,
-    sheetName: parsed.sheet.getName(),
-    headers,
-    rows,
-    sourceMeta: parsed
-  };
+  return result;
 }
 
 function resolveSource(activeSpreadsheet, sourceSpec) {
@@ -1807,6 +1905,10 @@ function parseFilterValues_(value) {
 }
 
 function readKeyConfig_(ss) {
+  if (RENDER_SESSION.active && RENDER_SESSION.keyConfig) {
+    return RENDER_SESSION.keyConfig;
+  }
+
   const config = {
     typeIcons: {},
     categoryColors: {},
@@ -1860,6 +1962,7 @@ function readKeyConfig_(ss) {
     }
   });
 
+  if (RENDER_SESSION.active) RENDER_SESSION.keyConfig = config;
   return config;
 }
 
@@ -2151,7 +2254,9 @@ function parseDateValue(value) {
   const text = String(value).trim();
   if (!text) return out;
 
-  const rangeMatch = text.match(/(.+?)\s*(?:-|to)\s*(.+)/i);
+  // Only treat as a range if the separator is surrounded by whitespace.
+  // Prevents titles like "Roadshow - East" or ISO dates like "2026-05-04" from being mis-read.
+  const rangeMatch = text.match(/^(.+?)\s+(?:-|to)\s+(.+)$/i);
 
   if (rangeMatch) {
     const start = parseSingleDate(rangeMatch[1]);
@@ -2167,10 +2272,7 @@ function parseDateValue(value) {
 
       return out;
     }
-
-    const justOne = start || end;
-    if (justOne) out.push(justOne);
-    return out;
+    // Partial / non-date range: fall through and try the whole text as a single date.
   }
 
   const single = parseSingleDate(text);
@@ -2181,6 +2283,7 @@ function parseDateValue(value) {
 
 function parseSingleDate(text) {
   const s = String(text || "").trim();
+  if (!s) return null;
 
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
@@ -2196,9 +2299,6 @@ function parseSingleDate(text) {
   if (m) {
     return new Date(currentYear(), Number(m[1]) - 1, Number(m[2]));
   }
-
-  const parsed = new Date(s);
-  if (!isNaN(parsed.getTime())) return parsed;
 
   return null;
 }
@@ -2570,11 +2670,19 @@ function getKeyBooleanOption_(ss, optionName, defaultValue) {
 }
 
 function applyKeyOverrides_(ss) {
+  if (RENDER_SESSION.active && RENDER_SESSION.keyOverridesApplied) return;
+
   const sheet = ss.getSheetByName(CALENDAR.keySheetName);
-  if (!sheet) return;
+  if (!sheet) {
+    if (RENDER_SESSION.active) RENDER_SESSION.keyOverridesApplied = true;
+    return;
+  }
 
   const values = sheet.getDataRange().getValues();
-  if (!values || values.length < 2) return;
+  if (!values || values.length < 2) {
+    if (RENDER_SESSION.active) RENDER_SESSION.keyOverridesApplied = true;
+    return;
+  }
 
   values.slice(1).forEach(row => {
     const option = String(row[10] || "").trim();
@@ -2604,6 +2712,8 @@ function applyKeyOverrides_(ss) {
       CALENDAR.colors[appearance] = appearanceColor;
     }
   });
+
+  if (RENDER_SESSION.active) RENDER_SESSION.keyOverridesApplied = true;
 }
 
 

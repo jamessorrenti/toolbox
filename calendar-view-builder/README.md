@@ -536,5 +536,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.4.4
+v13.5.0
 ```
