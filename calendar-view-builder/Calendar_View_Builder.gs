@@ -12,10 +12,11 @@
  * The version string lives in CALENDAR.version below.
  */
 
-// Global sheet name variables
+// Global sheet name variables. The Key tab can override these — see
+// KEY_SETUP_OPTIONS (defaultDataSheetName).
 const APP_CONFIG = {
   keySheetName: "Key",
-  dataSheetName: "Tactics List"
+  dataSheetName: "Events"
 };
 
 // Per-execution render session. Only active during multi-calendar refreshes;
@@ -64,6 +65,11 @@ function onOpen() {
     "showEventListMenu",
     CALENDAR.showEventListMenu
   );
+  const showSetKeyFromEventListMenu = getKeyBooleanOption_(
+    ss,
+    "showSetKeyFromEventListMenu",
+    CALENDAR.showSetKeyFromEventListMenu
+  );
   const showKeyConfiguratorMenuItems = getKeyBooleanOption_(
     ss,
     "showKeyConfiguratorMenuItems",
@@ -91,6 +97,11 @@ function onOpen() {
       .addItem("Create Event List", "createEventList");
   }
 
+  if (showSetKeyFromEventListMenu) {
+    if (!showEventListMenu) menu.addSeparator();
+    menu.addItem("Set Key From Event List", "setKeyFromEventList");
+  }
+
   if (showKeyConfiguratorMenuItems) {
     menu.addSeparator()
       .addItem("Run key configurator", "runKeyConfigurator")
@@ -110,10 +121,11 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.6.0",
+  version: "13.7.0",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
+  showSetKeyFromEventListMenu: true,
   showKeyConfiguratorMenuItems: true,
 
   calendarBaseName: "Calendar View",
@@ -155,8 +167,8 @@ const CALENDAR = {
     customAdditionalLabels: true,
     customAdditionalLabelsStyle: "Bold",
 
-    customDate: "MMDD",
-    customTitle: "Name",
+    customDate: "Date",
+    customTitle: "Title",
   },
 
   keyDefaults: {
@@ -247,8 +259,10 @@ const CALENDAR = {
 };
 
 const KEY_SETUP_OPTIONS = [
+  "defaultDataSheetName",
   "showInitialMenu",
   "showEventListMenu",
+  "showSetKeyFromEventListMenu",
   "showKeyConfiguratorMenuItems",
   "frozenWeekdayHeader",
   "customDate",
@@ -264,6 +278,17 @@ const KEY_SETUP_OPTIONS = [
   "monthFormat",
   "fontFamily",
 ];
+
+// Values written into the Key tab on creation when they should differ from the
+// script defaults in CALENDAR / CALENDAR.setup. The script defaults still apply
+// for spreadsheets that have no Key tab at all.
+const KEY_INITIAL_VALUES = {
+  showInitialMenu: false,
+  showEventListMenu: false,
+  showSetKeyFromEventListMenu: false,
+  showKeyConfiguratorMenuItems: false,
+  frozenWeekdayHeader: false,
+};
 
 const KEY_APPEARANCE_OPTIONS = [
   "titleBackground",
@@ -569,16 +594,30 @@ function initialSetup() {
 
 function createEventList() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  applyKeyOverrides_(ss);
+
   const existed = !!ss.getSheetByName(CALENDAR.defaultDataSheetName);
   const sheet = ensureEventsSheet_(ss);
   ss.setActiveSheet(sheet);
-  ss.toast(
-    existed
-      ? '"' + CALENDAR.defaultDataSheetName + '" tab already exists.'
-      : '"' + CALENDAR.defaultDataSheetName + '" tab created.',
-    CALENDAR.menuName,
-    4
-  );
+
+  // If the Key already exists, wire up validation + Category-based row colors
+  // right away so the event list is ready to use.
+  let configuratorRan = false;
+  if (ss.getSheetByName(CALENDAR.keySheetName)) {
+    try {
+      runKeyConfigurator();
+      configuratorRan = true;
+    } catch (err) {
+      Logger.log("Key configurator skipped during createEventList: " + err.message);
+    }
+  }
+
+  const parts = [];
+  parts.push(existed
+    ? '"' + CALENDAR.defaultDataSheetName + '" already exists'
+    : '"' + CALENDAR.defaultDataSheetName + '" created');
+  if (configuratorRan) parts.push("ran key configurator");
+  ss.toast(parts.join(", ") + ".", CALENDAR.menuName, 5);
 }
 
 function ensureEventsSheet_(ss) {
@@ -588,6 +627,262 @@ function ensureEventsSheet_(ss) {
   const sheet = ss.insertSheet(CALENDAR.defaultDataSheetName);
   buildEventsSheet_(sheet);
   return sheet;
+}
+
+// Interactive flow: pick an event list, then pick which columns/values to use
+// for Date, Title, Type, Category, Status. Writes the result into the Key tab.
+// Each prompt accepts either a number from the offered list or a custom name.
+function setKeyFromEventList() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  applyKeyOverrides_(ss);
+
+  const eventSheet = pickEventListSheet_(ui, ss);
+  if (!eventSheet) return;
+
+  const headers = readHeaders_(eventSheet);
+  if (!headers.length) {
+    ui.alert("No headers found in row 1 of \"" + eventSheet.getName() + "\".");
+    return;
+  }
+
+  const dateColumn = pickHeaderOrCustom_(ui, headers, "Date column",
+    "Which column has event dates?", detectHeader_(headers, [CALENDAR.setup.customDate, "Date", "Start Date", "Event Date"]));
+  if (dateColumn === null) return;
+
+  const titleColumn = pickHeaderOrCustom_(ui, headers, "Title column",
+    "Which column has event titles?", detectHeader_(headers, [CALENDAR.setup.customTitle, "Title", "Name", "Event Title"]));
+  if (titleColumn === null) return;
+
+  const typeColumn = pickHeaderOrCustom_(ui, headers, "Type column",
+    "Which column has event types? (leave blank to skip)", detectHeader_(headers, ["Type", "Event Type", "Channel", "Tactic Type"]), true);
+  if (typeColumn === false) return;
+  const types = typeColumn
+    ? pickValuesOrCustom_(ui, eventSheet, headers, typeColumn, "Type values")
+    : [];
+  if (types === null) return;
+
+  const categoryColumn = pickHeaderOrCustom_(ui, headers, "Category column",
+    "Which column has event categories? (leave blank to skip)", detectHeader_(headers, ["Category", "Event Category", "Theme", "Product", "Pillar"]), true);
+  if (categoryColumn === false) return;
+  const categories = categoryColumn
+    ? pickValuesOrCustom_(ui, eventSheet, headers, categoryColumn, "Category values")
+    : [];
+  if (categories === null) return;
+
+  const statusColumn = pickHeaderOrCustom_(ui, headers, "Status column",
+    "Which column has event statuses? (leave blank to skip)", detectHeader_(headers, ["Status", "Event Status"]), true);
+  if (statusColumn === false) return;
+  const statuses = statusColumn
+    ? pickValuesOrCustom_(ui, eventSheet, headers, statusColumn, "Status values")
+    : [];
+  if (statuses === null) return;
+
+  const summary =
+    "About to update the Key tab from \"" + eventSheet.getName() + "\":\n\n" +
+    "• Date column: " + dateColumn + "\n" +
+    "• Title column: " + titleColumn + "\n" +
+    "• Types (" + types.length + "): " + (types.join(", ") || "(none)") + "\n" +
+    "• Categories (" + categories.length + "): " + (categories.join(", ") || "(none)") + "\n" +
+    "• Statuses (" + statuses.length + "): " + (statuses.join(", ") || "(none)") + "\n\n" +
+    "Continue?";
+
+  const confirm = ui.alert("Set Key From Event List", summary, ui.ButtonSet.OK_CANCEL);
+  if (confirm !== ui.Button.OK) return;
+
+  let keySheet = ss.getSheetByName(CALENDAR.keySheetName);
+  if (!keySheet) {
+    keySheet = ss.insertSheet(CALENDAR.keySheetName);
+    buildKeySheet_(keySheet);
+  }
+
+  applyKeyFromEventList_(keySheet, { dateColumn, titleColumn, types, categories, statuses });
+  ss.toast("Key updated from \"" + eventSheet.getName() + "\".", CALENDAR.menuName, 5);
+}
+
+function pickEventListSheet_(ui, ss) {
+  const sheets = ss.getSheets().filter(s => s.getName() !== CALENDAR.keySheetName && !isCalendarSheet(s));
+  if (!sheets.length) {
+    ui.alert("No eligible event list tabs found. Create one with \"Create Event List\" first.");
+    return null;
+  }
+
+  const choices = sheets.map((s, i) => (i + 1) + ". " + s.getName()).join("\n");
+  const response = ui.prompt(
+    "Set Key From Event List",
+    "Pick an event list tab.\n\nEnter the number, or type a tab name:\n\n" + choices,
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (response.getSelectedButton() !== ui.Button.OK) return null;
+
+  const text = String(response.getResponseText() || "").trim();
+  if (!text) return null;
+
+  const asNum = Number(text);
+  if (Number.isInteger(asNum) && asNum >= 1 && asNum <= sheets.length) {
+    return sheets[asNum - 1];
+  }
+  const byName = ss.getSheetByName(text);
+  if (byName) return byName;
+  ui.alert("Could not find a tab named \"" + text + "\".");
+  return null;
+}
+
+function readHeaders_(sheet) {
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return [];
+  return sheet.getRange(1, 1, 1, lastCol).getValues()[0]
+    .map(v => String(v || "").trim())
+    .filter(v => v !== "");
+}
+
+function detectHeader_(headers, candidates) {
+  const norm = headers.map(normalizeHeader_);
+  for (const cand of candidates) {
+    const i = norm.indexOf(normalizeHeader_(cand));
+    if (i >= 0) return headers[i];
+  }
+  return "";
+}
+
+// Returns: a header name (string), null on cancel, or false when allowBlank
+// is true and the user submitted nothing. Distinguishing "" / null / false
+// lets the caller tell skip-this-column apart from cancel-the-flow.
+function pickHeaderOrCustom_(ui, headers, title, message, suggested, allowBlank) {
+  const choices = headers.map((h, i) => (i + 1) + ". " + h).join("\n");
+  const suggestion = suggested ? "\n\nDetected: " + suggested : "";
+  const skipHint = allowBlank ? "\n\nLeave blank to skip." : "";
+
+  const response = ui.prompt(
+    title,
+    message + suggestion + skipHint + "\n\nEnter a number, type a custom column name, or press OK to accept the detected value.\n\n" + choices,
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (response.getSelectedButton() !== ui.Button.OK) return null;
+
+  const text = String(response.getResponseText() || "").trim();
+
+  if (!text) {
+    if (allowBlank && !suggested) return false;
+    if (suggested) return suggested;
+    ui.alert("A value is required.");
+    return pickHeaderOrCustom_(ui, headers, title, message, suggested, allowBlank);
+  }
+
+  const asNum = Number(text);
+  if (Number.isInteger(asNum) && asNum >= 1 && asNum <= headers.length) {
+    return headers[asNum - 1];
+  }
+  return text;
+}
+
+// Returns: string[] of selected values, or null on cancel.
+// User input: "all" / comma-separated numbers / comma-separated custom names /
+// mixed (numbers become indexed values, non-numeric tokens become custom names).
+function pickValuesOrCustom_(ui, sheet, headers, columnName, title) {
+  const colIndex = findColumnIndex(headers, [columnName]);
+  let values = [];
+  if (colIndex >= 0) {
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      const rows = sheet.getRange(2, colIndex + 1, lastRow - 1, 1).getValues();
+      values = uniqueValuesFromColumn_(rows, 0);
+    }
+  }
+
+  const choices = values.length
+    ? values.map((v, i) => (i + 1) + ". " + v).join("\n")
+    : "(no values found in column \"" + columnName + "\")";
+
+  const response = ui.prompt(
+    title,
+    "Pick values for the Key.\n\n" +
+    'Enter "all", comma-separated numbers (e.g. 1,3,5), or comma-separated custom names.\n' +
+    "Leave blank to skip.\n\n" + choices,
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (response.getSelectedButton() !== ui.Button.OK) return null;
+
+  const text = String(response.getResponseText() || "").trim();
+  if (!text) return [];
+
+  if (text.toLowerCase() === "all") return values.slice();
+
+  const tokens = text.split(",").map(t => t.trim()).filter(t => t !== "");
+  const result = [];
+  const seen = Object.create(null);
+  tokens.forEach(token => {
+    const n = Number(token);
+    let pick = "";
+    if (Number.isInteger(n) && n >= 1 && n <= values.length) {
+      pick = values[n - 1];
+    } else {
+      pick = token;
+    }
+    const key = normalizeKey_(pick);
+    if (!seen[key]) {
+      seen[key] = true;
+      result.push(pick);
+    }
+  });
+  return result;
+}
+
+function applyKeyFromEventList_(keySheet, config) {
+  const maxRows = Math.max(keySheet.getMaxRows() - 1, 0);
+
+  if (config.types.length) {
+    const iconMap = pairsToMap_(CALENDAR.keyDefaults.types);
+    const rows = config.types.map(t => [t, iconMap[normalizeKey_(t)] || ""]);
+    if (maxRows > 0) keySheet.getRange(2, 1, maxRows, 2).clearContent();
+    keySheet.getRange(2, 1, rows.length, 2).setValues(rows);
+  }
+
+  if (config.categories.length) {
+    const colorMap = pairsToMap_(CALENDAR.keyDefaults.categories);
+    const palette = CALENDAR.keyDefaults.categories.map(p => p[1]);
+    const rows = config.categories.map((cat, i) => {
+      const color = colorMap[normalizeKey_(cat)] || palette[i % Math.max(palette.length, 1)] || "#FFFFFF";
+      return [cat, color];
+    });
+    if (maxRows > 0) {
+      keySheet.getRange(2, 4, maxRows, 2)
+        .clearContent()
+        .setBackground(null)
+        .setFontColor(null);
+    }
+    keySheet.getRange(2, 4, rows.length, 2).setValues(rows);
+    rows.forEach((row, i) => {
+      const color = row[1];
+      if (looksLikeColor_(color)) {
+        keySheet.getRange(i + 2, 4, 1, 2)
+          .setBackground(color)
+          .setFontColor(readableTextColor_(color));
+      }
+    });
+  }
+
+  if (config.statuses.length) {
+    const iconMap = pairsToMap_(CALENDAR.keyDefaults.statuses);
+    const rows = config.statuses.map(s => [s, iconMap[normalizeKey_(s)] || ""]);
+    if (maxRows > 0) keySheet.getRange(2, 7, maxRows, 2).clearContent();
+    keySheet.getRange(2, 7, rows.length, 2).setValues(rows);
+  }
+
+  if (config.dateColumn) updateKeyOptionValue_(keySheet, "customDate", config.dateColumn);
+  if (config.titleColumn) updateKeyOptionValue_(keySheet, "customTitle", config.titleColumn);
+}
+
+function pairsToMap_(pairs) {
+  const out = {};
+  (pairs || []).forEach(p => { out[normalizeKey_(p[0])] = p[1]; });
+  return out;
+}
+
+function updateKeyOptionValue_(keySheet, optionName, value) {
+  const row = findKeyOptionRow_(keySheet, optionName);
+  if (!row) return;
+  keySheet.getRange(row, 12).setValue(value);
 }
 
 function buildEventsSheet_(sheet) {
@@ -671,6 +966,7 @@ function buildKeySheet_(sheet) {
 
   setCheckboxIfOption_(sheet, "showInitialMenu");
   setCheckboxIfOption_(sheet, "showEventListMenu");
+  setCheckboxIfOption_(sheet, "showSetKeyFromEventListMenu");
   setCheckboxIfOption_(sheet, "showKeyConfiguratorMenuItems");
   setCheckboxIfOption_(sheet, "frozenWeekdayHeader");
   setCheckboxIfOption_(sheet, "customAdditionalLabels");
@@ -2594,7 +2890,9 @@ function buildKeySetupRows_() {
   return KEY_SETUP_OPTIONS.map(option => {
     let value = "";
 
-    if (Object.prototype.hasOwnProperty.call(CALENDAR.setup, option)) {
+    if (Object.prototype.hasOwnProperty.call(KEY_INITIAL_VALUES, option)) {
+      value = KEY_INITIAL_VALUES[option];
+    } else if (Object.prototype.hasOwnProperty.call(CALENDAR.setup, option)) {
       value = CALENDAR.setup[option];
     } else if (Object.prototype.hasOwnProperty.call(CALENDAR, option)) {
       value = CALENDAR[option];
@@ -2835,6 +3133,10 @@ function applyKeyOverrides_(ss) {
       CALENDAR.colors[appearance] = appearanceColor;
     }
   });
+
+  // Keep the Key Configurator's target sheet name in sync with whatever
+  // CALENDAR.defaultDataSheetName resolved to (script default or Key override).
+  KEY_CONFIGURATOR_CONFIG.targetSheetName = CALENDAR.defaultDataSheetName;
 
   if (RENDER_SESSION.active) RENDER_SESSION.keyOverridesApplied = true;
 }

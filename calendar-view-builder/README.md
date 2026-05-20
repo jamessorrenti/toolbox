@@ -67,7 +67,7 @@ You can either run the **Optional first-time setup** below to scaffold everythin
 
 `Calendar Tools > Initial Setup` is a one-click bootstrapper for a brand-new spreadsheet:
 
-1. Creates an event list tab (named `Tactics List` by default — controlled by `APP_CONFIG.dataSheetName` in the script) with these frozen header columns:
+1. Creates an event list tab (named `Events` by default — controlled by the `defaultDataSheetName` option, see below) with these frozen header columns:
 
    | Title | Date | Category | Type | Status |
    |---|---|---|---|---|
@@ -79,9 +79,16 @@ You can either run the **Optional first-time setup** below to scaffold everythin
 
 It is safe to re-run. Existing tabs are left in place; only missing tabs are created.
 
-**Using a pre-existing event list?** If you already have a sheet of events (under any tab name and any column layout) you do **not** need Initial Setup. Just point your calendar tab's `Source Data` dropdown (`G1`) at your existing tab, and make sure your date column matches `customDate` (default `Date`) and your title column matches `customTitle` (default `Title`). Both can be overridden from the `Key` tab. See [Source sheet format](#source-sheet-format) for the optional columns the script recognizes.
+**Using a pre-existing event list?** If you already have a sheet of events (under any tab name and any column layout) you do **not** need Initial Setup. Two options:
 
-You can hide or show the **Initial Setup**, **Create Event List**, and Key Configurator menu items from the `Key` tab — see [Menu visibility toggles](#menu-visibility-toggles).
+- Point your calendar tab's `Source Data` dropdown (`G1`) at your existing tab, and make sure your date column matches `customDate` (default `Date`) and your title column matches `customTitle` (default `Title`). Both can be overridden from the `Key` tab.
+- Or run **Calendar Tools > Set Key From Event List** — it walks you through picking which columns hold Date / Title / Type / Category / Status and which unique values become Key entries, then writes them into the Key tab for you. See [Set Key From Event List](#set-key-from-event-list).
+
+You can hide or show the **Initial Setup**, **Create Event List**, **Set Key From Event List**, and Key Configurator menu items from the `Key` tab — see [Menu visibility toggles](#menu-visibility-toggles).
+
+### Changing the default event list name
+
+`defaultDataSheetName` is a Key-tab setup option (default `Events`). Set it to whatever name your organization uses (for example `Tactics List`) and the **Initial Setup**, **Create Event List**, and the Key Configurator will all target that name. Reload the spreadsheet after editing the value.
 
 ---
 
@@ -93,14 +100,10 @@ By default, the script expects a local source tab named:
 Events
 ```
 
-You can change the default source tab in the script:
+You can change the default in two ways:
 
-```js
-const APP_CONFIG = {
-  keySheetName: "Key",
-  dataSheetName: "Events"
-};
-```
+- From the `Key` tab — set the `defaultDataSheetName` setup option to your tab name (recommended).
+- From the script itself — edit `APP_CONFIG.dataSheetName` at the top of `Calendar_View_Builder.gs`.
 
 The source sheet should use row 1 for headers and row 2 and below for event rows.
 
@@ -163,7 +166,8 @@ After reloading the spreadsheet, the script adds a custom menu called **Calendar
 | Open Selected | Opens a modal for the selected calendar day | — |
 | Add Q1-Q4 | Creates one tab for each quarter | — |
 | Add Jan-Dec | Creates one tab for each month | — |
-| Create Event List | Creates an event list tab with the default headers, if one does not exist | `showEventListMenu` |
+| Create Event List | Creates an event list tab with the default headers, if one does not exist. Auto-runs the Key Configurator when the `Key` tab is present. | `showEventListMenu` |
+| Set Key From Event List | Walk-through that reads an existing event list and writes its Date / Title / Type / Category / Status values into the Key tab | `showSetKeyFromEventListMenu` |
 | Run key configurator | Applies both validation and Category colors to the event list | `showKeyConfiguratorMenuItems` |
 | Set key-based validation | Applies just the validation step | `showKeyConfiguratorMenuItems` |
 | Set key-based colors | Applies just the conditional formatting step | `showKeyConfiguratorMenuItems` |
@@ -171,15 +175,38 @@ After reloading the spreadsheet, the script adds a custom menu called **Calendar
 
 ### Menu visibility toggles
 
-Three of the menu sections can be hidden from the `Key` tab. They all default to `TRUE` and live in the **Additional Setup** block.
+Four toggles in the `Key` tab's **Additional Setup** block control which menu sections are shown. Each toggle defaults to `TRUE` in the script (so a brand-new spreadsheet with no Key shows everything) and `FALSE` in the Key tab when the Key is created (so once you have a Key, menu items are hidden until you opt in).
 
-| Option | Default | Controls |
+| Option | Default in Key | Controls |
 |---|---|---|
-| `showInitialMenu` | `TRUE` | **Initial Setup** |
-| `showEventListMenu` | `TRUE` | **Create Event List** |
-| `showKeyConfiguratorMenuItems` | `TRUE` | **Run key configurator**, **Set key-based validation**, **Set key-based colors** |
+| `showInitialMenu` | `FALSE` | **Initial Setup** |
+| `showEventListMenu` | `FALSE` | **Create Event List** |
+| `showSetKeyFromEventListMenu` | `FALSE` | **Set Key From Event List** |
+| `showKeyConfiguratorMenuItems` | `FALSE` | **Run key configurator**, **Set key-based validation**, **Set key-based colors** |
 
 Reload the spreadsheet after flipping a toggle for the menu to re-render.
+
+---
+
+## Set Key From Event List
+
+`Calendar Tools > Set Key From Event List` is an interactive walk-through that builds the Key from a real event list. Useful when you have an existing list with your own Categories, Types, and Statuses.
+
+The flow:
+
+1. Pick the event list tab — type a number from the list, or type the tab name.
+2. **Date column** — accept the detected column (default `Date`), pick a numbered column, or type a custom column name.
+3. **Title column** — same as above (default `Title`).
+4. **Type / Category / Status columns** — same, but each may be skipped by leaving the prompt blank.
+5. **Type / Category / Status values** — for each column you kept, pick the values to add to the Key:
+   - `all` includes every unique value found in that column.
+   - `1,3,5` picks numbered options from the offered list.
+   - `Webinar, Direct Mail, Custom Name` accepts any mix of numbers and custom names (custom names are added as-is).
+6. Confirm the summary. The Key tab is updated:
+   - `Type`, `Category`, and `Status` sections are replaced with the chosen values. Matching default icons / colors from the script are reused; new categories get colors rotated from the default palette.
+   - `customDate` and `customTitle` in the setup section are updated to match your choices.
+
+The walk-through never touches the event list tab itself. If the Key tab does not exist, it is created first.
 
 ---
 
@@ -283,24 +310,26 @@ When an event has a matching Status, the icon appears after the event title.
 
 Setup options are generated from the script defaults. The `Key` tab can override them.
 
-| Option | Default | Description |
-|---|---|---|
-| `showInitialMenu` | `TRUE` | Show the **Initial Setup** menu item |
-| `showEventListMenu` | `TRUE` | Show the **Create Event List** menu item |
-| `showKeyConfiguratorMenuItems` | `TRUE` | Show the three Key Configurator menu items |
-| `frozenWeekdayHeader` | `TRUE` | Show a frozen weekday header row |
-| `customDate` | `Date` | Source column used for event dates |
-| `customTitle` | `Title` | Source column used for event titles |
-| `maxEvents` | `4` | Maximum visible events per day before showing More |
-| `customAdditional` | `Owner` | Additional source fields to display below event title |
-| `customAdditionalLabels` | `TRUE` | Show labels for additional fields |
-| `customAdditionalLabelsStyle` | `Bold` | Style applied to additional field labels |
-| `q1StartMonth` | `February` | Month used as the start of Q1 |
-| `startWeekOn` | `Sunday` | First day of the week |
-| `dayFormat` | `EEEE` | Format for weekday labels |
-| `dateFormat` | `d` | Format for date labels inside calendar cells |
-| `monthFormat` | `MMMM` | Format for month headers |
-| `fontFamily` | `Inter` | Default font family |
+| Option | Script default | Key default | Description |
+|---|---|---|---|
+| `defaultDataSheetName` | `Events` | `Events` | Source tab the menu items target (Initial Setup, Create Event List, Key Configurator) |
+| `showInitialMenu` | `TRUE` | `FALSE` | Show the **Initial Setup** menu item |
+| `showEventListMenu` | `TRUE` | `FALSE` | Show the **Create Event List** menu item |
+| `showSetKeyFromEventListMenu` | `TRUE` | `FALSE` | Show the **Set Key From Event List** menu item |
+| `showKeyConfiguratorMenuItems` | `TRUE` | `FALSE` | Show the three Key Configurator menu items |
+| `frozenWeekdayHeader` | `TRUE` | `FALSE` | Show a frozen weekday header row |
+| `customDate` | `Date` | `Date` | Source column used for event dates |
+| `customTitle` | `Title` | `Title` | Source column used for event titles |
+| `maxEvents` | `4` | `4` | Maximum visible events per day before showing More |
+| `customAdditional` | `Owner` | `Owner` | Additional source fields to display below event title |
+| `customAdditionalLabels` | `TRUE` | `TRUE` | Show labels for additional fields |
+| `customAdditionalLabelsStyle` | `Bold` | `Bold` | Style applied to additional field labels |
+| `q1StartMonth` | `February` | `February` | Month used as the start of Q1 |
+| `startWeekOn` | `Sunday` | `Sunday` | First day of the week |
+| `dayFormat` | `EEEE` | `EEEE` | Format for weekday labels |
+| `dateFormat` | `d` | `d` | Format for date labels inside calendar cells |
+| `monthFormat` | `MMMM` | `MMMM` | Format for month headers |
+| `fontFamily` | `Inter` | `Inter` | Default font family |
 
 Blank setup values fall back to the script defaults. Unknown setup options are ignored.
 
@@ -574,5 +603,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.6.0
+v13.7.0
 ```

@@ -5,6 +5,29 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.7.0
+
+### Added
+
+- **Set Key From Event List** menu item. Interactive walk-through that:
+  - lets you pick an existing event list tab (by number or by name),
+  - prompts for the Date and Title columns (accepts numbered options or custom names),
+  - prompts for the Type, Category, and Status columns and the values within them (`all`, numbered picks, custom names, or any mix),
+  - confirms, then writes the chosen values into the Key tab. Matching default icons and Category colors are reused; new Categories get colors from the default palette.
+- New `defaultDataSheetName` setup option, default `Events`. Override it in the `Key` tab to point all Calendar Tools menu actions at a differently-named event list (e.g. `Tactics List`). Kept in sync with the Key Configurator's `targetSheetName`.
+- New `showSetKeyFromEventListMenu` toggle to gate the new menu item.
+- **Create Event List** now auto-runs the Key Configurator when the Key tab is present, so dropdowns + Category-based row colors are wired up immediately.
+
+### Changed
+
+- Default event list tab name is now `Events` (was `Tactics List`).
+- Default `customDate` is now `Date` (was `MMDD`).
+- Default `customTitle` is now `Title` (was `Name`).
+- The four menu-visibility toggles + `frozenWeekdayHeader` now default to `FALSE` in the Key tab when it is created (script defaults remain `TRUE`). Net effect: a brand-new spreadsheet without a Key shows all menu items; once you have a Key, opt in to whichever you want by checking the corresponding box.
+- README: rewrote the Optional first-time setup section, added a **Set Key From Event List** section, and split the setup options table into "Script default" and "Key default" columns.
+
+---
+
 ## v13.6.0
 
 ### Added
