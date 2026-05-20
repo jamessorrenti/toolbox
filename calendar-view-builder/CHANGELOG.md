@@ -5,6 +5,14 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.10.3
+
+### Fixed
+
+- **`defaultDataSheetName` override from the Key tab was ignored** when creating new calendar tabs. Each menu click runs in a fresh Apps Script JS context where `CALENDAR.defaultDataSheetName` resets to the script default (`"Events"`). `applyKeyOverrides_` is what pulls the Key tab's value into `CALENDAR`, and it runs in `renderCalendarSheet`, `openSelected`, `createEventList`, `setKeyFromEventList`, and `onOpen` — but **not** in `newCalendarSheet`, `addQ1Q4`, `addJanDec`, or `initialSetup`. Those four now call `applyKeyOverrides_` at the top so the Key's `defaultDataSheetName` (and every other override) is respected when picking which source tab to point new calendars at.
+
+---
+
 ## v13.10.2
 
 ### Fixed

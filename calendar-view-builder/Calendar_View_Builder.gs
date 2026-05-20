@@ -140,7 +140,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.10.2",
+  version: "13.10.3",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -362,6 +362,7 @@ const KEY_APPEARANCE_OPTIONS = [
 
 function newCalendarSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  applyKeyOverrides_(ss);
   const period = currentMonthName();
   const year = currentYear();
   const sheet = ss.insertSheet(uniqueSheetName(ss, CALENDAR.calendarBaseName));
@@ -546,6 +547,7 @@ function getSelectedDateKeyFromRange_(range) {
 
 function addQ1Q4() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  applyKeyOverrides_(ss);
   const year = currentYear();
   const sourceSpec = getDefaultSourceSpec(ss);
 
@@ -562,6 +564,7 @@ function addQ1Q4() {
 
 function addJanDec() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  applyKeyOverrides_(ss);
   const year = currentYear();
   const sourceSpec = getDefaultSourceSpec(ss);
 
@@ -595,6 +598,7 @@ function createKeySheet() {
 // tabs are left in place.
 function initialSetup() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  applyKeyOverrides_(ss);
   showWorkingModal("Running initial setup...");
 
   const eventsCreated = !ss.getSheetByName(CALENDAR.defaultDataSheetName);
