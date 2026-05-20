@@ -140,7 +140,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.10.1",
+  version: "13.10.2",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -2999,16 +2999,24 @@ function dateKey(date) {
 }
 
 // The spreadsheet's timezone — used only when normalizing typed Date cells
-// read from the sheet. Cached because each lookup is a service call.
+// read from the sheet. Cached because each lookup is a service call. Always
+// returns a non-empty string; falls back to the Apps Script project TZ if the
+// spreadsheet lookup throws, returns null, or returns a non-string.
 let __CACHED_CALENDAR_TZ = null;
 function calendarTimeZone_() {
   if (__CACHED_CALENDAR_TZ) return __CACHED_CALENDAR_TZ;
+  let tz = null;
   try {
-    __CACHED_CALENDAR_TZ = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) tz = ss.getSpreadsheetTimeZone();
   } catch (err) {
-    __CACHED_CALENDAR_TZ = Session.getScriptTimeZone();
+    tz = null;
   }
-  return __CACHED_CALENDAR_TZ;
+  if (!tz || typeof tz !== "string") {
+    tz = Session.getScriptTimeZone();
+  }
+  __CACHED_CALENDAR_TZ = tz;
+  return tz;
 }
 
 // Apps Script reads typed Date cells as midnight-in-spreadsheet-TZ instants.
@@ -3018,16 +3026,24 @@ function calendarTimeZone_() {
 // the day can shift by one. This helper extracts the Y/M/D the spreadsheet
 // actually shows for that instant and reconstructs a Date at midnight in the
 // project TZ, so the rest of the script can use plain JS Date math safely.
+//
+// Defensive: if the timezone lookup or format call fails for any reason,
+// return the original Date so the calendar still renders (without the fix).
 function normalizeSpreadsheetDate_(value) {
   if (Object.prototype.toString.call(value) !== "[object Date]") return value;
   if (isNaN(value.getTime())) return value;
 
   const ssTz = calendarTimeZone_();
   const scriptTz = Session.getScriptTimeZone();
-  if (ssTz === scriptTz) return value;
+  if (!ssTz || typeof ssTz !== "string" || ssTz === scriptTz) return value;
 
-  const ymd = Utilities.formatDate(value, ssTz, "yyyy-MM-dd").split("-");
-  return new Date(Number(ymd[0]), Number(ymd[1]) - 1, Number(ymd[2]));
+  try {
+    const ymd = Utilities.formatDate(value, ssTz, "yyyy-MM-dd").split("-");
+    return new Date(Number(ymd[0]), Number(ymd[1]) - 1, Number(ymd[2]));
+  } catch (err) {
+    Logger.log("normalizeSpreadsheetDate_ skipped: " + err.message);
+    return value;
+  }
 }
 
 function findColumnIndex(headers, candidates) {

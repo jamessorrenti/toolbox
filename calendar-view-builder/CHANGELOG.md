@@ -5,6 +5,14 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.10.2
+
+### Fixed
+
+- v13.10.1 could throw `invalid timezone should be type string` from `Utilities.formatDate` when the spreadsheet TZ lookup returned a non-string value (e.g. `SpreadsheetApp.getActiveSpreadsheet()` was null or `getSpreadsheetTimeZone()` returned `null`/`undefined`). Hardened the lookup to always return a non-empty string (falling back to the Apps Script project TZ), and wrapped `normalizeSpreadsheetDate_` in a try/catch so any unexpected failure falls back to the original Date instead of crashing the refresh.
+
+---
+
 ## v13.10.1
 
 ### Fixed
