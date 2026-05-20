@@ -140,7 +140,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.10.6",
+  version: "13.10.7",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -1233,7 +1233,12 @@ function applyKeySetupValidations_(sheet) {
   }
 
   const headers = readDefaultDataSheetHeaders_(ss);
-  ["customDate", "customTitle"].forEach(optionName => {
+  // customAdditional is a comma-separated list of source headers. Apply the
+  // same headers-based dropdown so single-pick works; if the user manually
+  // enables "Allow multiple selections" on this cell in the Data validation
+  // dialog, picking multiple options writes them as comma-separated text,
+  // which is exactly the format customAdditional already expects.
+  ["customDate", "customTitle", "customAdditional"].forEach(optionName => {
     const row = findKeyOptionRow_(sheet, optionName);
     if (!row) return;
     if (headers.length) {

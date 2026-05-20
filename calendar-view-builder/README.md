@@ -410,7 +410,7 @@ Setup options are generated from the script defaults. The `Key` tab can override
 | `customDate` | `Date` | `Date` | Source column used for event dates. Dropdown of headers from `defaultDataSheetName`; accepts custom names. |
 | `customTitle` | `Title` | `Title` | Source column used for event titles. Dropdown of headers from `defaultDataSheetName`; accepts custom names. |
 | `maxEvents` | `4` | `4` | Maximum visible events per day before showing More |
-| `customAdditional` | `Owner` | `Owner` | Additional source fields to display below event title |
+| `customAdditional` | `Owner` | `Owner` | Additional source fields to display below event title. Dropdown of headers from `defaultDataSheetName`; accepts custom comma-separated lists. Enable **Data → Data validation → Allow multiple selections** on this cell to pick several headers from the dropdown at once. |
 | `customAdditionalLabels` | `TRUE` | `TRUE` | Show labels for additional fields |
 | `customAdditionalLabelsStyle` | `Bold` | `Bold` | Style applied to additional field labels |
 | `q1StartMonth` | `January` | `January` | Month used as the start of Q1. Dropdown of month names. |
@@ -694,5 +694,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.10.6
+v13.10.7
 ```

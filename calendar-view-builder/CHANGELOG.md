@@ -5,6 +5,14 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.10.7
+
+### Added
+
+- `customAdditional` on the Key tab now gets the same headers-based dropdown as `customDate` and `customTitle` — accepts custom values, and if you enable **Data → Data validation → Allow multiple selections** on the cell, picking several headers writes them as a comma-separated list, which is the format `customAdditional` already expects.
+
+---
+
 ## v13.10.6
 
 ### Fixed
