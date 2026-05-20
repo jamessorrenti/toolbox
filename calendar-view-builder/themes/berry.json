@@ -1,6 +1,9 @@
 {
   "name": "Berry",
   "description": "Deep purple title with magenta/teal/blue month rotation. The current script default.",
+  "setup": {
+    "fontFamily": "Inter"
+  },
   "colors": {
     "titleBackground": "#4A0039",
     "titleFontColor": "#FFFFFF",
