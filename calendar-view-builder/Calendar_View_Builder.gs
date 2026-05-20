@@ -140,7 +140,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.10.4-debug",
+  version: "13.10.4",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -430,22 +430,11 @@ function refreshAllCalendars() {
     return;
   }
 
-  // Diagnostic: write enough to logs to debug date-shift issues. View via
-  // Extensions > Apps Script > Executions > [most recent run].
   applyKeyOverrides_(ss);
-  Logger.log("[v" + CALENDAR.version + "] refreshAllCalendars");
-  Logger.log("  calendarTimeZone_ (spreadsheet TZ): " + calendarTimeZone_());
-  Logger.log("  Session.getScriptTimeZone (script TZ): " + Session.getScriptTimeZone());
-  Logger.log("  CALENDAR.defaultDataSheetName: " + CALENDAR.defaultDataSheetName);
-  Logger.log("  CALENDAR.setup.customDate: " + CALENDAR.setup.customDate);
-  Logger.log("  CALENDAR.setup.startWeekOn: " + CALENDAR.setup.startWeekOn);
-
   showWorkingModal("Refreshing all calendars...");
 
   let refreshed = 0;
   const failures = [];
-
-  __DEBUG_DATE_PARSE_REMAINING = 3;
 
   withRenderSession_(() => {
     calendarSheets.forEach((sheet) => {
@@ -2949,39 +2938,17 @@ function columnToLetter(columnNumber) {
   return columnLetter;
 }
 
-// Diagnostic counter — reset per refreshAllCalendars run; logs the first few
-// source-row date parses so we can see what's going wrong with TZ math.
-let __DEBUG_DATE_PARSE_REMAINING = 0;
-
 function parseDateValue(value) {
   const out = [];
   if (value === null || value === undefined || value === "") return out;
 
   if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
-    const normalized = normalizeSpreadsheetDate_(value);
-    if (__DEBUG_DATE_PARSE_REMAINING > 0) {
-      __DEBUG_DATE_PARSE_REMAINING--;
-      Logger.log("  parseDateValue Date branch:");
-      Logger.log("    raw input toISOString: " + value.toISOString());
-      Logger.log("    raw input.getTime(): " + value.getTime());
-      Logger.log("    normalized toISOString: " + normalized.toISOString());
-      Logger.log("    normalized dateKey: " + dateKey(normalized));
-      Logger.log("    normalize was no-op: " + (normalized === value));
-    }
-    out.push(normalized);
+    out.push(normalizeSpreadsheetDate_(value));
     return out;
   }
 
   const text = String(value).trim();
   if (!text) return out;
-
-  if (__DEBUG_DATE_PARSE_REMAINING > 0) {
-    __DEBUG_DATE_PARSE_REMAINING--;
-    Logger.log("  parseDateValue text branch:");
-    Logger.log("    raw input: " + JSON.stringify(value));
-    Logger.log("    typeof: " + (typeof value));
-    Logger.log("    trimmed text: " + JSON.stringify(text));
-  }
 
   // Only treat as a range if the separator is surrounded by whitespace.
   // Prevents titles like "Roadshow - East" or ISO dates like "2026-05-04" from being mis-read.
@@ -3057,26 +3024,45 @@ function calendarTimeZone_() {
   return tz;
 }
 
-// Apps Script reads typed Date cells as midnight-in-spreadsheet-TZ instants.
-// If the Apps Script project's timezone differs from the spreadsheet's
-// (a project created in a different region, a user who travelled, etc.),
-// JS Date getters/formatters interpret that instant in the project TZ and
-// the day can shift by one. This helper extracts the Y/M/D the spreadsheet
-// actually shows for that instant and reconstructs a Date at midnight in the
-// project TZ, so the rest of the script can use plain JS Date math safely.
+// Source date cells can land in two different shapes, both of which cause the
+// "events shifted by one day" bug if not handled:
 //
-// Defensive: if the timezone lookup or format call fails for any reason,
-// return the original Date so the calendar still renders (without the fix).
+//   1. Midnight in the spreadsheet's TZ — the normal case when a date is
+//      typed into the Sheets UI. Shifts when the script project's TZ differs
+//      from the spreadsheet's TZ.
+//   2. Midnight UTC regardless of spreadsheet TZ — the common case when dates
+//      were imported from CSV / BigQuery / another system / an Apps Script
+//      project running in UTC. Sheets displays them in UTC even when the
+//      spreadsheet's configured TZ is something else, but Apps Script's
+//      Utilities.formatDate uses the configured TZ and the day shifts.
+//
+// In both cases the fix is the same: extract the Y/M/D the spreadsheet
+// actually shows for this instant, then reconstruct a Date at midnight in
+// the script TZ. After that, the rest of the script can use plain JS Date
+// math safely.
+//
+// Detection: an instant whose milliseconds are an exact multiple of one day
+// (86,400,000 ms) is midnight UTC, so interpret it in UTC. Anything else is
+// midnight in some named TZ, so interpret it in the spreadsheet's configured
+// TZ.
+//
+// Defensive: if the format call fails for any reason, return the original
+// Date so the calendar still renders (without the fix) instead of crashing.
 function normalizeSpreadsheetDate_(value) {
   if (Object.prototype.toString.call(value) !== "[object Date]") return value;
   if (isNaN(value.getTime())) return value;
 
-  const ssTz = calendarTimeZone_();
   const scriptTz = Session.getScriptTimeZone();
-  if (!ssTz || typeof ssTz !== "string" || ssTz === scriptTz) return value;
+  const interpretTz = (value.getTime() % 86400000 === 0)
+    ? "UTC"
+    : calendarTimeZone_();
+
+  if (!interpretTz || typeof interpretTz !== "string" || interpretTz === scriptTz) {
+    return value;
+  }
 
   try {
-    const ymd = Utilities.formatDate(value, ssTz, "yyyy-MM-dd").split("-");
+    const ymd = Utilities.formatDate(value, interpretTz, "yyyy-MM-dd").split("-");
     return new Date(Number(ymd[0]), Number(ymd[1]) - 1, Number(ymd[2]));
   } catch (err) {
     Logger.log("normalizeSpreadsheetDate_ skipped: " + err.message);

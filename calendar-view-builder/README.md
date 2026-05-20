@@ -692,5 +692,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.10.3
+v13.10.4
 ```

@@ -5,6 +5,20 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.10.4
+
+### Fixed
+
+- **Events shifted by one day when the source date column contained midnight-UTC instants.** This is the second half of the date-shift fix. v13.10.1/.2 covered the case where the spreadsheet's TZ differed from the script project's TZ. This release also covers the case where the underlying cell value is a midnight-UTC instant — common when dates were imported from CSV, BigQuery, an external system, or an Apps Script project running in UTC. Sheets displays such cells in UTC even when the spreadsheet's configured timezone says otherwise, and `Utilities.formatDate` in any other TZ rolls them back to the previous day.
+
+  `normalizeSpreadsheetDate_` now detects midnight-UTC instants (instant ms is an exact multiple of 86,400,000) and interprets them in UTC instead of the spreadsheet's configured TZ. Normal Sheets-UI-entered dates still go through the spreadsheet's configured TZ as before, so both shapes work side by side.
+
+### Removed
+
+- The diagnostic logging added in v13.10.4-debug.
+
+---
+
 ## v13.10.3
 
 ### Fixed
