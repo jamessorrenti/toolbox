@@ -151,7 +151,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.10.7",
+  version: "13.11.0",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
