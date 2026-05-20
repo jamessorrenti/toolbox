@@ -5,6 +5,25 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.12.0
+
+### Added
+
+- **Auto-Refresh on tab switch.** Opt-in via `Calendar Tools → Enable Auto-Refresh`. When enabled:
+  - Edits to relevant columns on the source event list (Date / Title / Type / Category / Status / customAdditional, plus their fallback aliases) record a `lastSourceChangeAt` timestamp in shared `DocumentProperties`. Format, color, and other off-axis edits do not.
+  - When a user switches *to* a calendar tab, if that calendar's per-sheet refresh timestamp is older than the most-recent source edit, the calendar re-renders. Switching cells within the same sheet does not trigger anything.
+  - A 15-minute installable time-based trigger acts as a safety net for "user is staring at a calendar while someone else edits source" — it silently calls `refreshAllCalendars`.
+  - Disabling Auto-Refresh deletes the installable trigger and unsets the enabled flag. Auto-Refresh state is per-spreadsheet (shared `DocumentProperties`); the installable trigger is owned by whoever clicked Enable.
+- `showAutoRefreshMenu` Key toggle (default `TRUE` in script, `FALSE` in Key) gates the new menu item.
+- `refreshAllCalendars(opts)` now accepts `{ silent: true }` to suppress the working modal and toasts — used by the scheduled refresh so the UI doesn't pop up in the background.
+
+### Notes
+
+- The on-tab-switch refresh runs inside `onSelectionChange`, which is a simple trigger with a 30-second execution cap. Refreshing a single calendar typically takes 1–3 seconds with batched rendering, well under the cap.
+- The installable safety-net trigger requires authorization the first time you enable Auto-Refresh.
+
+---
+
 ## v13.11.0
 
 ### Added
