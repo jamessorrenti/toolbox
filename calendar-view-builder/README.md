@@ -182,7 +182,6 @@ After reloading the spreadsheet, the script adds a custom menu called **Calendar
 | Set Key From Event List | Walk-through that reads an existing event list and writes its Date / Title / Type / Category / Status values into the Key tab | `showSetKeyFromEventListMenu` |
 | Import Theme | Fetches a list of themes from a public repo and writes the chosen one into the Key tab — or, optionally, into the active calendar tab's [Theme Override](#theme-override-per-calendar-tab) band | `showImportThemeMenu` (also auto-shown when any tab has an override) |
 | Add Theme Override | Adds a per-tab Theme Override band to the active calendar tab, pre-populated with its currently-effective values | `showImportThemeMenu` (only when active tab is a calendar without an override) |
-| Enable / Disable Auto-Refresh | Toggles the [Auto-Refresh](#auto-refresh) feature: lazy refresh on tab switch after a source edit, plus a 15-min safety-net trigger | `showAutoRefreshMenu` |
 | Run key configurator | Applies both validation and Category colors to the event list | `showKeyConfiguratorMenuItems` |
 | Set key-based validation | Applies just the validation step | `showKeyConfiguratorMenuItems` |
 | Set key-based colors | Applies just the conditional formatting step | `showKeyConfiguratorMenuItems` |
@@ -358,13 +357,14 @@ When **any** calendar tab has a Theme Override band, `Calendar Tools → Import 
 
 ## Auto-Refresh
 
-`Calendar Tools → Enable Auto-Refresh` makes calendars update themselves without anyone clicking refresh:
+Calendars update themselves when you switch to them, controlled by the **`autoRefresh`** checkbox in the Key tab (defaults to `TRUE`).
 
-1. Every time someone edits a relevant column (`Date`, `Title`, `Type`, `Category`, `Status`, or one of the `customAdditional` fields, plus their fallback aliases) on the source event list, the script stamps a `lastSourceChangeAt` timestamp.
-2. When *any* user then **switches to a calendar tab**, the script checks whether that calendar's last refresh predates the most-recent source edit. If so, it re-renders just that one calendar.
-3. A 15-minute installable time trigger acts as a safety net for the "user is staring at a calendar while someone else edits source" case — it silently refreshes all calendars.
+When enabled:
 
-Disabling Auto-Refresh deletes the installable trigger and turns off the behavior.
+1. Every time someone edits a relevant column on the source event list (`Date`, `Title`, `Type`, `Category`, `Status`, or one of the `customAdditional` fields, plus their fallback aliases), the script stamps a `lastSourceChangeAt` timestamp.
+2. When *any* user then **switches to a calendar tab**, the script checks whether that calendar's last refresh predates the most-recent source edit. If so, it silently re-renders just that one calendar.
+
+To turn it off, uncheck `autoRefresh` in the Key tab's Additional Setup block.
 
 ### What counts as a "relevant" edit
 
@@ -382,15 +382,13 @@ Format-only changes, color, and edits to unrelated columns do not invalidate. (D
 
 ### Multi-user behavior
 
-- The "Auto-Refresh enabled" state, the `lastSourceChangeAt` timestamp, and per-calendar refresh timestamps live in shared `DocumentProperties` — everyone sees the same view.
-- Each user's "previous active sheet" tracker lives in their own `UserProperties`, so two users navigating in parallel don't fight each other.
-- Apps Script installable triggers are **per user**. If James clicks Enable, the safety-net trigger is owned by James and fires under his authorization. If Alice clicks Enable separately, she gets her own trigger (both will fire; harmless but wasteful). One enable per spreadsheet is usually enough.
+- The `autoRefresh` toggle and the per-calendar refresh timestamps live in the spreadsheet's `Key` tab and `DocumentProperties` respectively — shared across users.
+- Each user's "previous active sheet" tracker lives in their own `UserProperties`, so two editors navigating in parallel don't fight each other.
 
 ### Limitations
 
-- The simple `onSelectionChange` trigger has a 30-second execution cap. A single calendar refresh is typically 1–3 s with batched rendering, well under the cap. If you have a `Year` calendar with many events that takes longer than 30 s to render, the on-switch refresh might time out (manual refresh still works).
-- If you're already viewing a calendar tab when someone else edits the source, your calendar won't update until you switch away and back — or until the 15-min safety-net trigger fires.
-- The installable trigger requires authorization the first time you enable Auto-Refresh.
+- The simple `onSelectionChange` trigger has a 30-second execution cap. A single calendar refresh is typically 1–3 s with batched rendering, well under the cap. If a calendar render takes longer than 30 s, the on-switch refresh might time out (manual refresh still works).
+- If you're already viewing a calendar tab when someone else edits the source, your calendar won't update until you switch away and back — or click the refresh box / menu manually.
 
 ---
 
@@ -501,8 +499,8 @@ Setup options are generated from the script defaults. The `Key` tab can override
 | `showEventListMenu` | `TRUE` | `FALSE` | Show the **Create Event List** menu item |
 | `showSetKeyFromEventListMenu` | `TRUE` | `FALSE` | Show the **Set Key From Event List** menu item |
 | `showImportThemeMenu` | `TRUE` | `FALSE` | Show the **Import Theme** menu item |
-| `showAutoRefreshMenu` | `TRUE` | `FALSE` | Show the **Enable / Disable Auto-Refresh** menu item |
 | `showKeyConfiguratorMenuItems` | `TRUE` | `FALSE` | Show the three Key Configurator menu items |
+| `autoRefresh` | `TRUE` | `TRUE` | When `TRUE`, calendars auto-refresh on tab switch after source edits. See [Auto-Refresh](#auto-refresh). |
 | `frozenWeekdayHeader` | `TRUE` | `FALSE` | Show a frozen weekday header row |
 | `customDate` | `Date` | `Date` | Source column used for event dates. Dropdown of headers from `defaultDataSheetName`; accepts custom names. |
 | `customTitle` | `Title` | `Title` | Source column used for event titles. Dropdown of headers from `defaultDataSheetName`; accepts custom names. |
@@ -791,5 +789,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.12.0
+v13.12.1
 ```

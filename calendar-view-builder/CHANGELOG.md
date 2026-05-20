@@ -5,6 +5,21 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.12.1
+
+### Changed
+
+- **Auto-Refresh is now controlled by a Key toggle, default ON.** Replaces the v13.12.0 menu-based Enable/Disable pattern. The Key tab's Additional Setup block has a new `autoRefresh` checkbox (defaults to `TRUE` when the Key is created, defaults to `TRUE` script-side for spreadsheets without the row yet). Existing spreadsheets get Auto-Refresh enabled automatically — no menu click required.
+- The `Enable Auto-Refresh` / `Disable Auto-Refresh` menu items and the `showAutoRefreshMenu` toggle are removed.
+- The 15-minute installable safety-net trigger is no longer installed by default. If you previously installed one via v13.12.0, it'll keep firing harmlessly through the same gate (it checks the Key toggle now); delete it from the Apps Script editor's Triggers panel if you don't want it.
+- `onSelectionChange` and `handleSourceEdit_` now call `applyKeyOverrides_` *before* checking the Auto-Refresh toggle, so the Key's value is reflected in the fresh JS context that simple triggers run in.
+
+### Notes
+
+- This drops the "user is staring at the calendar while someone else edits source" safety-net case. If that becomes a real problem, we'll add back an opt-in scheduled trigger.
+
+---
+
 ## v13.12.0
 
 ### Added

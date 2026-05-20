@@ -87,11 +87,6 @@ function onOpen() {
     "showImportThemeMenu",
     CALENDAR.showImportThemeMenu
   ) || hasAnyPerTabOverride_(ss);
-  const showAutoRefreshMenu = getKeyBooleanOption_(
-    ss,
-    "showAutoRefreshMenu",
-    CALENDAR.showAutoRefreshMenu
-  );
   const showKeyConfiguratorMenuItems = getKeyBooleanOption_(
     ss,
     "showKeyConfiguratorMenuItems",
@@ -144,15 +139,6 @@ function onOpen() {
       .addItem("Set key-based colors", "setKeyBasedConditionalFormatting");
   }
 
-  if (showAutoRefreshMenu) {
-    menu.addSeparator();
-    if (isAutoRefreshEnabled_()) {
-      menu.addItem("Disable Auto-Refresh", "disableAutoRefresh");
-    } else {
-      menu.addItem("Enable Auto-Refresh", "enableAutoRefresh");
-    }
-  }
-
   if (!ss.getSheetByName(CALENDAR.keySheetName)) {
     menu.addSeparator()
       .addItem("Create Key (and customize)", "createKeySheet");
@@ -165,14 +151,17 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.12.0",
+  version: "13.12.1",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
   showSetKeyFromEventListMenu: true,
   showImportThemeMenu: true,
-  showAutoRefreshMenu: true,
   showKeyConfiguratorMenuItems: true,
+
+  // Auto-Refresh: when TRUE, source-list edits invalidate calendars and the
+  // calendar re-renders when the user switches to it. Default ON.
+  autoRefresh: true,
 
   // Public theme registry. The index file lists themes; each theme file lives
   // in the same directory. Fork the toolbox repo and point these URLs at your
@@ -318,8 +307,8 @@ const KEY_SETUP_OPTIONS = [
   "showEventListMenu",
   "showSetKeyFromEventListMenu",
   "showImportThemeMenu",
-  "showAutoRefreshMenu",
   "showKeyConfiguratorMenuItems",
+  "autoRefresh",
   "frozenWeekdayHeader",
   "customDate",
   "customTitle",
@@ -343,8 +332,11 @@ const KEY_INITIAL_VALUES = {
   showEventListMenu: false,
   showSetKeyFromEventListMenu: false,
   showImportThemeMenu: false,
-  showAutoRefreshMenu: false,
   showKeyConfiguratorMenuItems: false,
+  // autoRefresh defaults TRUE in the Key (different from the show* toggles).
+  // It controls whether source-list edits trigger lazy calendar refresh on
+  // tab switch.
+  autoRefresh: true,
   frozenWeekdayHeader: false,
 };
 
@@ -783,14 +775,13 @@ function withPerTabOverridesApplied_(sheet, fn) {
 // === Auto-Refresh =========================================================
 // Lazy refresh: when the user switches to a calendar tab, if any source-list
 // edits have happened since that calendar was last refreshed, re-render it.
-// Plus a 15-min installable trigger as a safety net for the "user is staring
-// at the calendar while someone else edits source" case.
 //
-// State (all in PropertiesService so it survives across Apps Script
-// executions, since each onEdit / onSelectionChange runs in a fresh context):
+// Controlled by CALENDAR.autoRefresh (a Key-tab boolean, default TRUE).
+//
+// State (DocumentProperties / UserProperties so it survives across Apps Script
+// executions — each onEdit / onSelectionChange runs in a fresh context):
 //
 //   DocumentProperties (shared across users):
-//     autoRefreshEnabled               "true" / unset
 //     autoRefreshLastSourceChangeAt    unix ms — last source edit
 //     autoRefreshAt:<sheetId>          unix ms — last refresh of that calendar
 //
@@ -800,62 +791,16 @@ function withPerTabOverridesApplied_(sheet, fn) {
 //                                      a sheet change vs. a cell move.
 
 const AUTO_REFRESH = {
-  enabledKey: "autoRefreshEnabled",
   lastSourceChangeKey: "autoRefreshLastSourceChangeAt",
   perCalendarPrefix: "autoRefreshAt:",
   lastActiveSheetKey: "autoRefreshLastActiveSheet",
-  triggerFunction: "scheduledAutoRefresh_",
-  intervalMinutes: 15,
 };
 
+// Read the Key-tab `autoRefresh` toggle (CALENDAR.autoRefresh after
+// applyKeyOverrides_ has run). Default TRUE in script; only an explicit
+// FALSE in the Key tab turns it off.
 function isAutoRefreshEnabled_() {
-  try {
-    return PropertiesService.getDocumentProperties().getProperty(AUTO_REFRESH.enabledKey) === "true";
-  } catch (err) {
-    return false;
-  }
-}
-
-function enableAutoRefresh() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  PropertiesService.getDocumentProperties().setProperty(AUTO_REFRESH.enabledKey, "true");
-
-  // Install the safety-net trigger if it doesn't exist (any user's trigger
-  // covers the spreadsheet; if multiple editors enable, multiple triggers
-  // fire and update the same shared state — wasteful but harmless).
-  removeAutoRefreshTrigger_();
-  ScriptApp.newTrigger(AUTO_REFRESH.triggerFunction)
-    .timeBased()
-    .everyMinutes(AUTO_REFRESH.intervalMinutes)
-    .create();
-
-  ss.toast(
-    'Auto-Refresh enabled. Calendars refresh when you switch to them after a source edit, plus every ' +
-      AUTO_REFRESH.intervalMinutes + ' min as a safety net. Reload the spreadsheet to update the menu.',
-    CALENDAR.menuName,
-    10
-  );
-}
-
-function disableAutoRefresh() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  PropertiesService.getDocumentProperties().deleteProperty(AUTO_REFRESH.enabledKey);
-  removeAutoRefreshTrigger_();
-  ss.toast(
-    "Auto-Refresh disabled. Reload the spreadsheet to update the menu.",
-    CALENDAR.menuName,
-    6
-  );
-}
-
-function removeAutoRefreshTrigger_() {
-  try {
-    ScriptApp.getProjectTriggers().forEach(t => {
-      if (t.getHandlerFunction() === AUTO_REFRESH.triggerFunction) {
-        ScriptApp.deleteTrigger(t);
-      }
-    });
-  } catch (err) {}
+  return CALENDAR.autoRefresh !== false;
 }
 
 function calendarRefreshKey_(sheet) {
@@ -883,9 +828,12 @@ function isCalendarStale_(sheet) {
   }
 }
 
-// Called by the installable time trigger. Refreshes all calendars silently
-// (no modal, no toast). Skips if Auto-Refresh has since been turned off.
+// Kept so any installable trigger created by the previous v13.12.0 menu-based
+// design keeps working harmlessly. New installs don't create it; existing
+// users with a stale trigger can delete it from the Apps Script editor.
 function scheduledAutoRefresh_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  try { applyKeyOverrides_(ss); } catch (err) { return; }
   if (!isAutoRefreshEnabled_()) return;
   try {
     refreshAllCalendars({ silent: true });
@@ -898,17 +846,16 @@ function scheduledAutoRefresh_() {
 // source data tab. Sets a shared "last source change" timestamp so that the
 // next time anyone switches to a calendar tab, it knows whether to refresh.
 function handleSourceEdit_(e) {
-  if (!isAutoRefreshEnabled_()) return;
   if (!e || !e.range) return;
 
   const sheet = e.range.getSheet();
   const ss = sheet.getParent();
 
-  try {
-    applyKeyOverrides_(ss);
-  } catch (err) {
-    return;
-  }
+  // applyKeyOverrides_ must run before isAutoRefreshEnabled_ — otherwise
+  // CALENDAR.autoRefresh is at the script default in this fresh JS context
+  // and the Key's value isn't reflected.
+  try { applyKeyOverrides_(ss); } catch (err) { return; }
+  if (!isAutoRefreshEnabled_()) return;
 
   if (sheet.getName() !== CALENDAR.defaultDataSheetName) return;
 
@@ -2020,8 +1967,8 @@ function buildKeySheet_(sheet) {
   setCheckboxIfOption_(sheet, "showEventListMenu");
   setCheckboxIfOption_(sheet, "showSetKeyFromEventListMenu");
   setCheckboxIfOption_(sheet, "showImportThemeMenu");
-  setCheckboxIfOption_(sheet, "showAutoRefreshMenu");
   setCheckboxIfOption_(sheet, "showKeyConfiguratorMenuItems");
+  setCheckboxIfOption_(sheet, "autoRefresh");
   setCheckboxIfOption_(sheet, "frozenWeekdayHeader");
   setCheckboxIfOption_(sheet, "customAdditionalLabels");
   applyKeyOptionNotes_(sheet);
@@ -2229,9 +2176,8 @@ function onEdit(e) {
 function onSelectionChange(e) {
   // Auto-Refresh hook: if the user just switched to a calendar tab and that
   // calendar is stale (source edits since its last refresh), re-render it.
-  // No-op when Auto-Refresh is disabled or the sheet didn't change.
+  // No-op when the sheet didn't change or Auto-Refresh is disabled in the Key.
   if (!e || !e.range) return;
-  if (!isAutoRefreshEnabled_()) return;
 
   let userProps;
   try {
@@ -2245,12 +2191,18 @@ function onSelectionChange(e) {
   const prevSheetId = userProps.getProperty(AUTO_REFRESH.lastActiveSheetKey);
 
   // Always update the "last active sheet" tracker so the next event has
-  // accurate comparison data.
+  // accurate comparison data — even if we end up not refreshing.
   userProps.setProperty(AUTO_REFRESH.lastActiveSheetKey, sheetId);
 
+  // Cheap filters first to avoid Key reads on every cell click.
   if (prevSheetId === sheetId) return; // Same sheet, just a cell move.
   if (!isCalendarSheet(sheet)) return;
   if (!isCalendarStale_(sheet)) return;
+
+  // About to act — now apply Key overrides and gate on the Key toggle.
+  const ss = sheet.getParent();
+  try { applyKeyOverrides_(ss); } catch (err) { return; }
+  if (!isAutoRefreshEnabled_()) return;
 
   try {
     renderCalendarSheet(sheet);
