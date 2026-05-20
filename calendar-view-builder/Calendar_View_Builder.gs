@@ -140,7 +140,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.10.5",
+  version: "13.10.6",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -1414,13 +1414,9 @@ function initializeCalendarSheet(sheet, period, year, sourceSpec) {
   setSourceSheetDropdown_(sheet);
   setFilterDropdowns_(sheet, true);
 
-  sheet.setColumnWidth(1, 150);
-  sheet.setColumnWidth(2, 150);
-  sheet.setColumnWidth(3, 90);
-  sheet.setColumnWidth(4, 110);
-  sheet.setColumnWidth(5, 30);
-  sheet.setColumnWidth(6, 120);
-  sheet.setColumnWidth(7, 260);
+  // Column widths are set once at the end of renderCalendarSheet so we don't
+  // briefly resize columns (especially the narrow control-row spacer in
+  // column E) and then resize them back during refresh.
 
   sheet.getRange("A1:G2").setFontFamily(CALENDAR.setup.fontFamily);
   sheet.getRange("G2").setNote("Check to refresh this calendar after changing the controls.");
@@ -1480,13 +1476,9 @@ function rebuildCalendarCanvas(sheet, controls) {
   setSourceSheetDropdown_(sheet);
   setFilterDropdowns_(sheet, false);
 
-  sheet.setColumnWidth(1, 150);
-  sheet.setColumnWidth(2, 150);
-  sheet.setColumnWidth(3, 90);
-  sheet.setColumnWidth(4, 110);
-  sheet.setColumnWidth(5, 30);
-  sheet.setColumnWidth(6, 120);
-  sheet.setColumnWidth(7, 260);
+  // Column widths are set once at the end of renderCalendarSheet so we don't
+  // briefly resize columns (especially the narrow control-row spacer in
+  // column E) and then resize them back during refresh.
 
   sheet.getRange(3, 1, CALENDAR.layout.renderRowCapacity, 7).clear({ contentsOnly: false });
   renderFrozenWeekdayHeader_(sheet);

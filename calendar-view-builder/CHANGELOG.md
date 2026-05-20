@@ -5,6 +5,14 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.10.6
+
+### Fixed
+
+- **Column flicker during refresh.** `initializeCalendarSheet` and `rebuildCalendarCanvas` were briefly setting columns to the control-row layout (column E shrank to 30px in particular) before the month-render loop ran, and then the final `setColumnWidths(1, 7, 145)` at the end of `renderCalendarSheet` set them back. The intermediate widths were unused since they're immediately overwritten, so the calls were removed. Refresh now sets column widths once at the end, after months are rendered.
+
+---
+
 ## v13.10.5
 
 ### Changed
