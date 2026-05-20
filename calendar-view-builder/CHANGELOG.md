@@ -5,6 +5,28 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.11.0
+
+### Added
+
+- **Theme Override per calendar tab.** A calendar tab can now carry its own grouped column band (H–M) that overrides selected setup, appearance, and Category colors just for that tab. Render-path precedence is: script defaults → Key tab overrides → per-tab overrides → rendered output. Each calendar in `Refresh All Calendars` snapshots / applies / restores `CALENDAR.setup` and `CALENDAR.colors` around its own render so a per-tab theme on calendar A never leaks into calendar B.
+  - The band has three sub-sections: setup options (column I/J), categories (also I/J, below a buffer row), and appearance colors (L/M). Spacer columns H and K separate the band from the calendar grid in A–G.
+  - Setup options eligible for per-tab override = everything in `KEY_SETUP_OPTIONS` except the six spreadsheet-wide ones (`defaultDataSheetName`, the four `show*` menu toggles, `showKeyConfiguratorMenuItems`).
+  - Boolean options (`frozenWeekdayHeader`, `customAdditionalLabels`) use a 3-state dropdown (blank / TRUE / FALSE) so blank still means "inherit Key".
+  - Headers for source-derived options (`customDate`, `customTitle`, `customAdditional`) and month/day name dropdowns mirror the Key tab's behavior.
+  - Live color formatting: pasting a hex into any color cell in column J (categories) or column M (appearance) sets the cell background and chooses a readable font color.
+- **`Calendar Tools → Add Theme Override` menu item.** Visible when the active tab is a calendar without an override band. Creates the band and pre-populates every value cell with the currently-effective value (script default overlaid with Key overrides), so users see "what this tab is currently using" and can edit from there.
+- **`Calendar Tools → Import Theme` target prompt.** When the active tab is a calendar, Import Theme prompts whether to apply the theme to *this tab only* (auto-creates the override band if missing, then refreshes the calendar) or to the Key (existing behavior, affects every calendar without its own override). From a non-calendar tab the prompt is skipped.
+- **Theme `categoryPalette` field.** Themes can ship a positional palette `[1st, 2nd, 3rd category color]` that gets applied to the Key's Category section (or the override band's Category section) when the theme is imported. All six bundled themes now ship one — Berry's matches the existing Key defaults so existing users see no visual change.
+- **`Import Theme` menu item reachable when any tab has the override band**, even if `showImportThemeMenu` is FALSE in the Key. Once a tab has overrides, users need a way to import a theme to it regardless of the global toggle.
+
+### Notes
+
+- The band's header marker is the literal text `Theme Override` in cell H1. Detection runs on every render and on every `onOpen`, so adding/removing the band updates menu visibility on the next reload.
+- The Import Theme toast now reports counts for colors, setup options, and categories updated.
+
+---
+
 ## v13.10.7
 
 ### Added

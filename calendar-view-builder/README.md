@@ -180,7 +180,8 @@ After reloading the spreadsheet, the script adds a custom menu called **Calendar
 | Add Jan-Dec | Creates one tab for each month | — |
 | Create Event List | Creates an event list tab with the default headers, if one does not exist. Auto-runs the Key Configurator when the `Key` tab is present. | `showEventListMenu` |
 | Set Key From Event List | Walk-through that reads an existing event list and writes its Date / Title / Type / Category / Status values into the Key tab | `showSetKeyFromEventListMenu` |
-| Import Theme | Fetches a list of themes from a public repo and writes the chosen one into the Key tab | `showImportThemeMenu` |
+| Import Theme | Fetches a list of themes from a public repo and writes the chosen one into the Key tab — or, optionally, into the active calendar tab's [Theme Override](#theme-override-per-calendar-tab) band | `showImportThemeMenu` (also auto-shown when any tab has an override) |
+| Add Theme Override | Adds a per-tab Theme Override band to the active calendar tab, pre-populated with its currently-effective values | `showImportThemeMenu` (only when active tab is a calendar without an override) |
 | Run key configurator | Applies both validation and Category colors to the event list | `showKeyConfiguratorMenuItems` |
 | Set key-based validation | Applies just the validation step | `showKeyConfiguratorMenuItems` |
 | Set key-based colors | Applies just the conditional formatting step | `showKeyConfiguratorMenuItems` |
@@ -227,7 +228,7 @@ The walk-through never touches the event list tab itself. If the Key tab does no
 
 ## Import Theme
 
-`Calendar Tools > Import Theme` pulls themes from a public repo and writes the chosen palette into the Key tab.
+`Calendar Tools > Import Theme` pulls themes from a public repo and writes the chosen palette into the Key tab — or, optionally, into the active calendar tab's [Theme Override](#theme-override-per-calendar-tab) band.
 
 > **First-run note:** Import Theme uses `UrlFetchApp` to fetch the theme files, which triggers an extra Google authorization prompt the first time you run it (the `script.external_request` scope). Approve once and the prompt does not return. See [First-run authorization](#first-run-authorization).
 
@@ -236,8 +237,13 @@ The flow:
 1. The script fetches a manifest (`index.json`) from the configured theme repo.
 2. A numbered prompt lists every theme with its description.
 3. You pick by number or by name.
-4. The script fetches that theme's JSON and writes its `colors` into the Key tab's **Appearance** section (column O), and any optional `setup` values into the **Additional Setup** section.
-5. Refresh All Calendars to see the new theme.
+4. **If you ran Import Theme from a calendar tab**, a target prompt appears:
+   - **YES** — apply to the active calendar tab only (creates the Theme Override band if missing).
+   - **NO** — apply to the Key tab (affects every calendar without its own override).
+   - **CANCEL** — abort.
+   From a non-calendar tab the prompt is skipped and the theme goes to the Key.
+5. The script writes the theme's `colors` to the **Appearance** section, `setup` overrides to **Additional Setup**, and `categoryPalette` (if present) positionally to the **Category** section.
+6. If targeted at a calendar tab, that calendar is refreshed automatically. If targeted at the Key, run **Refresh All Calendars** to see the change.
 
 The default registry ships with these themes:
 
@@ -264,13 +270,19 @@ A theme file is a small JSON document:
   },
   "setup": {
     "fontFamily": "Courier New"
-  }
+  },
+  "categoryPalette": [
+    "#FF0000",
+    "#00FF00",
+    "#0000FF"
+  ]
 }
 ```
 
 - `colors` keys must match entries in `CALENDAR.colors` (e.g. `titleBackground`, `month1HeaderBackground`, `eventDefaultBackground`). Unknown keys are ignored.
 - `setup` keys must match entries in `CALENDAR.setup` (e.g. `fontFamily`, `dateFormat`, `customAdditionalLabelsStyle`). Unknown keys are ignored.
-- `colors` and `setup` are both optional. A theme can be colors-only, setup-only, or both.
+- `categoryPalette` is positional: `palette[0]` overwrites the 1st named category in the Category section, `palette[1]` the 2nd, and so on. Categories beyond the palette length keep their existing colors.
+- All three fields are optional. A theme can carry any combination.
 
 The manifest (`index.json`) lists available themes:
 
@@ -295,6 +307,51 @@ themes: {
 ```
 
 Fork the repo (or host your own), point these URLs at your fork, and **Import Theme** will pull from your set. The script uses `UrlFetchApp.fetch` and only requires that the URLs be HTTP-reachable from Google's network.
+
+---
+
+## Theme Override (per calendar tab)
+
+By default, every calendar tab in a spreadsheet uses the same theme — the one defined by the `Key` tab's **Additional Setup** + **Appearance** + **Category** sections.
+
+If you want one calendar to look different from the others (custom palette, different font, different Category colors, etc.) without touching the Key, you can give that tab its own **Theme Override** band. The render-path precedence is:
+
+```
+script defaults  →  Key tab overrides  →  per-tab Theme Override  →  rendered output
+```
+
+Each calendar's overrides apply only to its own render; they don't leak to other calendars during `Refresh All Calendars`.
+
+### Adding the band
+
+Two ways to add the Theme Override band to a calendar tab:
+
+- **`Calendar Tools → Add Theme Override`** — visible when the active tab is a calendar without an override. Creates the band and pre-populates every value cell with the currently-effective value (script default overlaid with Key overrides), so you see "what this tab is currently using" and can edit individual cells.
+- **`Calendar Tools → Import Theme` with target = "this tab only"** — same as above, but applies a chosen theme into the band.
+
+The band lives in columns **H–M** as a single grouped column band, collapsed by default. Click the `+` above column H (or the toggle that appears when a column group is collapsed) to expand it.
+
+### Band layout
+
+| Col | Section | Purpose |
+|---|---|---|
+| H | spacer | Visual gap from the calendar grid |
+| I / J | Additional Setup | Setup-option name / value. Blank value = inherit Key. |
+| I / J | Category | Below a 1-row buffer, then `Category` / `Category-Color` sub-header. Blank color = inherit Key. |
+| K | spacer | — |
+| L / M | Appearance | Appearance-option name / hex color. Blank = inherit Key. |
+
+All **value** cells (J and M) honor the same dropdowns and live color formatting as the Key tab.
+
+### What can be overridden per tab
+
+Everything in `CALENDAR.setup` *except* six spreadsheet-wide concerns: `defaultDataSheetName` and the five menu-visibility toggles. Boolean options use a 3-state dropdown (blank / TRUE / FALSE) so blank still means "inherit Key".
+
+The Category section supports per-category color overrides. The name column is pre-filled from the Key's current categories so you don't have to type them — drop hex values into the color cells of categories you want to override on this tab.
+
+### Import Theme menu visibility
+
+When **any** calendar tab has a Theme Override band, `Calendar Tools → Import Theme` stays visible in the menu even if `showImportThemeMenu` is FALSE in the Key. Once you have an override, you need a way to import a theme to it.
 
 ---
 
@@ -694,5 +751,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.10.7
+v13.11.0
 ```

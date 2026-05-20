@@ -79,11 +79,14 @@ function onOpen() {
     "showSetKeyFromEventListMenu",
     CALENDAR.showSetKeyFromEventListMenu
   );
+  // Show Import Theme when the Key toggle says so OR when any calendar tab
+  // has the per-tab override band — once a tab has overrides, the user needs
+  // a way to import a theme into it regardless of the global toggle.
   const showImportThemeMenu = getKeyBooleanOption_(
     ss,
     "showImportThemeMenu",
     CALENDAR.showImportThemeMenu
-  );
+  ) || hasAnyPerTabOverride_(ss);
   const showKeyConfiguratorMenuItems = getKeyBooleanOption_(
     ss,
     "showKeyConfiguratorMenuItems",
@@ -119,6 +122,14 @@ function onOpen() {
   if (showImportThemeMenu) {
     if (!showEventListMenu && !showSetKeyFromEventListMenu) menu.addSeparator();
     menu.addItem("Import Theme", "importTheme");
+
+    // "Add Theme Override" appears when the active tab is a calendar without
+    // an override band. Menu state is rebuilt at onOpen, so switching tabs
+    // requires a reload to refresh the menu — handler also validates.
+    const activeForMenu = ss.getActiveSheet();
+    if (activeForMenu && isCalendarSheet(activeForMenu) && !hasPerTabOverride_(activeForMenu)) {
+      menu.addItem("Add Theme Override", "addThemeOverride");
+    }
   }
 
   if (showKeyConfiguratorMenuItems) {
@@ -140,7 +151,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.10.7",
+  version: "13.11.0",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -359,6 +370,398 @@ const KEY_APPEARANCE_OPTIONS = [
   "month3DaysInactiveBackgroundColor",
   "month3DaysInactiveFontColor",
 ];
+
+// === Per-tab override =====================================================
+// A calendar tab can optionally carry its own grouped column band (H–M) that
+// overrides selected setup/appearance values just for that tab. Render path:
+//   script defaults → Key tab overrides → per-tab overrides → rendered output
+//
+// The band is only present on tabs that have opted in (typically via
+// Import Theme > "this tab only"). Tabs without it render as before.
+
+// Spreadsheet-wide concerns that intentionally do NOT participate in per-tab
+// overrides — they identify the source / control menu visibility.
+const PER_TAB_OVERRIDE_EXCLUDED_OPTIONS = [
+  "defaultDataSheetName",
+  "showInitialMenu",
+  "showEventListMenu",
+  "showSetKeyFromEventListMenu",
+  "showImportThemeMenu",
+  "showKeyConfiguratorMenuItems",
+];
+
+// Boolean options get a 3-state dropdown ("", "TRUE", "FALSE") rather than a
+// checkbox so users can distinguish "no override" (blank) from "override to
+// FALSE" (explicit).
+const PER_TAB_OVERRIDE_BOOLEAN_OPTIONS = [
+  "frozenWeekdayHeader",
+  "customAdditionalLabels",
+];
+
+const PER_TAB_OVERRIDE = {
+  header: "Theme Override",
+  importLabel: "Import Theme:",
+  // Column layout (1-indexed): H I J K L M
+  headerCol: 8,
+  setupNameCol: 9,
+  setupValueCol: 10,
+  spacerCol: 11,
+  appearanceNameCol: 12,
+  appearanceValueCol: 13,
+  // Row layout
+  importRow: 2,
+  subHeaderRow: 3,
+  dataStartRow: 4,
+};
+
+function perTabOverrideSetupOptions_() {
+  return KEY_SETUP_OPTIONS.filter(o => PER_TAB_OVERRIDE_EXCLUDED_OPTIONS.indexOf(o) < 0);
+}
+
+function hasPerTabOverride_(sheet) {
+  if (!sheet) return false;
+  try {
+    const marker = sheet.getRange(1, PER_TAB_OVERRIDE.headerCol).getValue();
+    return String(marker || "").trim() === PER_TAB_OVERRIDE.header;
+  } catch (err) {
+    return false;
+  }
+}
+
+// True if any sheet in the workbook has the per-tab override band. Used to
+// keep "Import Theme" reachable from the menu even when showImportThemeMenu
+// is FALSE in the Key — once a tab has overrides, the user needs a way to
+// import to it.
+function hasAnyPerTabOverride_(ss) {
+  try {
+    const sheets = ss.getSheets();
+    for (let i = 0; i < sheets.length; i++) {
+      if (hasPerTabOverride_(sheets[i])) return true;
+    }
+  } catch (err) {}
+  return false;
+}
+
+// Builds the per-tab override column band (H–M) on a calendar tab. Idempotent
+// — returns immediately if the band already exists.
+// Row offsets for the Category sub-section inside the override band, computed
+// dynamically because they depend on perTabOverrideSetupOptions_() length.
+function perTabOverrideCategoryHeaderRow_() {
+  return PER_TAB_OVERRIDE.dataStartRow + perTabOverrideSetupOptions_().length + 1; // +1 = buffer row
+}
+function perTabOverrideCategoryDataStartRow_() {
+  return perTabOverrideCategoryHeaderRow_() + 1;
+}
+
+function addPerTabOverride_(sheet) {
+  if (hasPerTabOverride_(sheet)) return;
+
+  const fontFamily = CALENDAR.setup.fontFamily || "Inter";
+  const requiredCols = PER_TAB_OVERRIDE.appearanceValueCol;
+  if (sheet.getMaxColumns() < requiredCols) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), requiredCols - sheet.getMaxColumns());
+  }
+
+  const setupOptions = perTabOverrideSetupOptions_();
+  const appearanceOptions = KEY_APPEARANCE_OPTIONS.slice();
+  const headerColCount = requiredCols - PER_TAB_OVERRIDE.headerCol + 1;
+
+  // Layout:
+  //   I-J: setup rows | buffer row | "Category" sub-header | category rows
+  //   L-M: appearance rows (run all the way down in parallel)
+  const initialCategories = readKeyCategoriesDisplay_(sheet.getParent());
+  const categoryHeaderRow = perTabOverrideCategoryHeaderRow_();
+  const categoryDataStartRow = perTabOverrideCategoryDataStartRow_();
+  const categoryRowCount = initialCategories.length;
+  const lastSetupBlockRow = categoryDataStartRow + Math.max(categoryRowCount, 0) - 1;
+  const lastAppearanceRow = PER_TAB_OVERRIDE.dataStartRow + appearanceOptions.length - 1;
+  const lastDataRow = Math.max(lastSetupBlockRow, lastAppearanceRow);
+  const dataRows = lastDataRow - PER_TAB_OVERRIDE.dataStartRow + 1;
+
+  // Row 1: merged "Per-Tab Override" header
+  const headerRange = sheet.getRange(1, PER_TAB_OVERRIDE.headerCol, 1, headerColCount);
+  headerRange.merge()
+    .setValue(PER_TAB_OVERRIDE.header)
+    .setBackground(CALENDAR.colors.titleBackground)
+    .setFontColor(CALENDAR.colors.titleFontColor)
+    .setFontWeight("bold")
+    .setFontSize(14)
+    .setFontFamily(fontFamily)
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle");
+
+  // Row 2: informational pointer. We can't put a real "trigger import" control
+  // here because simple onEdit triggers can't call UrlFetchApp or ui.prompt
+  // (the authorization model forbids it). Instead, the presence of the
+  // override band makes "Import Theme" appear in Calendar Tools regardless of
+  // the showImportThemeMenu Key toggle (see onOpen).
+  sheet.getRange(PER_TAB_OVERRIDE.importRow, PER_TAB_OVERRIDE.headerCol, 1, headerColCount)
+    .merge()
+    .setValue("Use Calendar Tools → Import Theme → apply to this tab")
+    .setFontWeight("normal")
+    .setFontStyle("italic")
+    .setFontFamily(fontFamily)
+    .setFontColor("#666666")
+    .setBackground("#FAFAFA")
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle");
+
+  // Row 3: column sub-headers
+  const subHeaders = [["", "Option", "Value", "", "Appearance", "Color"]];
+  sheet.getRange(PER_TAB_OVERRIDE.subHeaderRow, PER_TAB_OVERRIDE.headerCol, 1, headerColCount)
+    .setValues(subHeaders)
+    .setFontWeight("bold")
+    .setFontFamily(fontFamily)
+    .setBackground("#EEEEEE")
+    .setHorizontalAlignment("left");
+
+  // Rows 4+: setup options (col I=name, col J=value, blank by default)
+  if (setupOptions.length > 0) {
+    const setupValues = setupOptions.map(o => [o, ""]);
+    sheet.getRange(PER_TAB_OVERRIDE.dataStartRow, PER_TAB_OVERRIDE.setupNameCol, setupValues.length, 2)
+      .setValues(setupValues);
+  }
+
+  // Category section header (col I "Category", col J "Category-Color")
+  sheet.getRange(categoryHeaderRow, PER_TAB_OVERRIDE.setupNameCol, 1, 2)
+    .setValues([["Category", "Category-Color"]])
+    .setFontWeight("bold")
+    .setFontFamily(fontFamily)
+    .setBackground("#EEEEEE");
+
+  // Pre-fill category names (no colors yet — blank color = inherit Key value)
+  if (categoryRowCount > 0) {
+    const categoryNameRows = initialCategories.map(p => [String(p[0] || "").trim(), ""]);
+    sheet.getRange(categoryDataStartRow, PER_TAB_OVERRIDE.setupNameCol, categoryNameRows.length, 2)
+      .setValues(categoryNameRows);
+  }
+
+  // Rows 4+: appearance options (col L=name, col M=color, blank by default)
+  if (appearanceOptions.length > 0) {
+    const appearanceValues = appearanceOptions.map(o => [o, ""]);
+    sheet.getRange(PER_TAB_OVERRIDE.dataStartRow, PER_TAB_OVERRIDE.appearanceNameCol, appearanceValues.length, 2)
+      .setValues(appearanceValues);
+  }
+
+  // Style data area
+  if (dataRows > 0) {
+    sheet.getRange(PER_TAB_OVERRIDE.dataStartRow, PER_TAB_OVERRIDE.headerCol, dataRows, headerColCount)
+      .setFontFamily(fontFamily)
+      .setFontSize(10)
+      .setVerticalAlignment("middle");
+    sheet.getRange(PER_TAB_OVERRIDE.dataStartRow, PER_TAB_OVERRIDE.setupNameCol, dataRows, 1)
+      .setFontColor("#666666");
+    sheet.getRange(PER_TAB_OVERRIDE.dataStartRow, PER_TAB_OVERRIDE.appearanceNameCol, dataRows, 1)
+      .setFontColor("#666666");
+    sheet.getRange(PER_TAB_OVERRIDE.dataStartRow, PER_TAB_OVERRIDE.headerCol, dataRows, 1)
+      .setBackground("#F2F2F2");
+    sheet.getRange(PER_TAB_OVERRIDE.dataStartRow, PER_TAB_OVERRIDE.spacerCol, dataRows, 1)
+      .setBackground("#F2F2F2");
+  }
+
+  // Column widths
+  sheet.setColumnWidth(PER_TAB_OVERRIDE.headerCol, 30);
+  sheet.setColumnWidth(PER_TAB_OVERRIDE.setupNameCol, 180);
+  sheet.setColumnWidth(PER_TAB_OVERRIDE.setupValueCol, 130);
+  sheet.setColumnWidth(PER_TAB_OVERRIDE.spacerCol, 30);
+  sheet.setColumnWidth(PER_TAB_OVERRIDE.appearanceNameCol, 260);
+  sheet.setColumnWidth(PER_TAB_OVERRIDE.appearanceValueCol, 130);
+
+  applyPerTabOverrideValidations_(sheet);
+
+  // Group H–M and collapse
+  try {
+    sheet.getRange(1, PER_TAB_OVERRIDE.headerCol, 1, headerColCount).shiftColumnGroupDepth(1);
+    const group = sheet.getColumnGroup(PER_TAB_OVERRIDE.headerCol, 1);
+    if (group) group.collapse();
+  } catch (err) {
+    Logger.log("Could not group per-tab override columns: " + err.message);
+  }
+}
+
+// Attach dropdowns to per-tab override value cells (column J). All use
+// allow-invalid=true so leaving the cell blank still means "inherit Key value".
+function applyPerTabOverrideValidations_(sheet) {
+  if (!hasPerTabOverride_(sheet)) return;
+
+  const setupOptions = perTabOverrideSetupOptions_();
+
+  // Booleans → 3-state ("", "TRUE", "FALSE")
+  PER_TAB_OVERRIDE_BOOLEAN_OPTIONS.forEach(opt => {
+    const idx = setupOptions.indexOf(opt);
+    if (idx < 0) return;
+    setDropdownValidation(
+      sheet.getRange(PER_TAB_OVERRIDE.dataStartRow + idx, PER_TAB_OVERRIDE.setupValueCol),
+      ["TRUE", "FALSE"],
+      true
+    );
+  });
+
+  // q1StartMonth → month names
+  const monthIdx = setupOptions.indexOf("q1StartMonth");
+  if (monthIdx >= 0) {
+    setDropdownValidation(
+      sheet.getRange(PER_TAB_OVERRIDE.dataStartRow + monthIdx, PER_TAB_OVERRIDE.setupValueCol),
+      CALENDAR.monthOptions.slice(),
+      true
+    );
+  }
+
+  // startWeekOn → day names + compressed weekend
+  const dayIdx = setupOptions.indexOf("startWeekOn");
+  if (dayIdx >= 0) {
+    setDropdownValidation(
+      sheet.getRange(PER_TAB_OVERRIDE.dataStartRow + dayIdx, PER_TAB_OVERRIDE.setupValueCol),
+      [
+        "Sunday", "Monday", "Tuesday", "Wednesday",
+        "Thursday", "Friday", "Saturday",
+        "Monday-CompressedWeekend"
+      ],
+      true
+    );
+  }
+
+  // customDate / customTitle / customAdditional → source headers
+  const headers = readDefaultDataSheetHeaders_(sheet.getParent());
+  ["customDate", "customTitle", "customAdditional"].forEach(opt => {
+    const idx = setupOptions.indexOf(opt);
+    if (idx < 0) return;
+    const cell = sheet.getRange(PER_TAB_OVERRIDE.dataStartRow + idx, PER_TAB_OVERRIDE.setupValueCol);
+    if (headers.length) {
+      setDropdownValidation(cell, headers, true);
+    } else {
+      cell.clearDataValidations();
+    }
+  });
+}
+
+// When a hex color is pasted into a color cell of the Theme Override band,
+// apply it as the cell background. Affects: column M (appearance) anywhere
+// from data row 4 down, and column J within the Category sub-section.
+function formatEditedPerTabOverrideCell_(range) {
+  const sheet = range.getSheet();
+  if (!hasPerTabOverride_(sheet)) return;
+
+  const col = range.getColumn();
+  const row = range.getRow();
+
+  const isAppearanceColor =
+    col === PER_TAB_OVERRIDE.appearanceValueCol && row >= PER_TAB_OVERRIDE.dataStartRow;
+  const isCategoryColor =
+    col === PER_TAB_OVERRIDE.setupValueCol && row >= perTabOverrideCategoryDataStartRow_();
+
+  if (!isAppearanceColor && !isCategoryColor) return;
+
+  const color = String(range.getValue() || "").trim();
+  if (looksLikeColor_(color)) {
+    range.setBackground(color).setFontColor(readableTextColor_(color));
+  } else {
+    range.setBackground(null).setFontColor(null);
+  }
+}
+
+// Reads non-blank override values from a calendar tab's H–M override section.
+// Returns { setup, colors, categoryColors }. Empty maps if the tab has no band
+// or has it with all blanks.
+function readPerTabOverrides_(sheet) {
+  const out = { setup: {}, colors: {}, categoryColors: {} };
+  if (!hasPerTabOverride_(sheet)) return out;
+
+  const setupOptions = perTabOverrideSetupOptions_();
+  if (setupOptions.length > 0) {
+    const values = sheet.getRange(
+      PER_TAB_OVERRIDE.dataStartRow,
+      PER_TAB_OVERRIDE.setupNameCol,
+      setupOptions.length,
+      2
+    ).getValues();
+    values.forEach(row => {
+      const name = String(row[0] || "").trim();
+      const rawValue = row[1];
+      const hasValue = rawValue !== "" && rawValue !== null && rawValue !== undefined;
+      if (name && hasValue) out.setup[name] = rawValue;
+    });
+  }
+
+  // Category section: scan a window past the header row. Stop reading once we
+  // get past the last row with content. Tolerates blank rows in between (a
+  // user might have deleted a category row but kept the structure).
+  const categoryDataStartRow = perTabOverrideCategoryDataStartRow_();
+  const scanLastRow = Math.max(0, sheet.getLastRow() - categoryDataStartRow + 1);
+  const maxScan = Math.min(50, scanLastRow);
+  if (maxScan > 0) {
+    const values = sheet.getRange(
+      categoryDataStartRow,
+      PER_TAB_OVERRIDE.setupNameCol,
+      maxScan,
+      2
+    ).getValues();
+    values.forEach(row => {
+      const name = String(row[0] || "").trim();
+      if (!name) return;
+      const color = String(row[1] || "").trim();
+      if (!color || !looksLikeColor_(color)) return;
+      out.categoryColors[normalizeKey_(name)] = color;
+    });
+  }
+
+  const appearanceOptions = KEY_APPEARANCE_OPTIONS;
+  if (appearanceOptions.length > 0) {
+    const values = sheet.getRange(
+      PER_TAB_OVERRIDE.dataStartRow,
+      PER_TAB_OVERRIDE.appearanceNameCol,
+      appearanceOptions.length,
+      2
+    ).getValues();
+    values.forEach(row => {
+      const name = String(row[0] || "").trim();
+      const rawValue = String(row[1] || "").trim();
+      if (name && rawValue && looksLikeColor_(rawValue)) out.colors[name] = rawValue;
+    });
+  }
+
+  return out;
+}
+
+// Wraps `fn` so any non-blank per-tab override on `sheet` is layered on top of
+// CALENDAR.setup / CALENDAR.colors for the duration of the call, then restored.
+// The overrides object (with categoryColors) is also passed to `fn` so the
+// caller can layer category color overrides onto keyConfig.
+// No-op (just calls fn) if the tab has no override band or all values blank.
+function withPerTabOverridesApplied_(sheet, fn) {
+  const overrides = readPerTabOverrides_(sheet);
+  const setupKeys = Object.keys(overrides.setup);
+  const colorKeys = Object.keys(overrides.colors);
+  const categoryKeys = Object.keys(overrides.categoryColors);
+  if (setupKeys.length === 0 && colorKeys.length === 0 && categoryKeys.length === 0) {
+    return fn(overrides);
+  }
+
+  const setupSnapshot = {};
+  Object.keys(CALENDAR.setup).forEach(k => { setupSnapshot[k] = CALENDAR.setup[k]; });
+  const colorsSnapshot = {};
+  Object.keys(CALENDAR.colors).forEach(k => { colorsSnapshot[k] = CALENDAR.colors[k]; });
+
+  setupKeys.forEach(k => {
+    if (Object.prototype.hasOwnProperty.call(CALENDAR.setup, k)) {
+      CALENDAR.setup[k] = coerceKeyOverrideValue_(overrides.setup[k], CALENDAR.setup[k]);
+    }
+  });
+  colorKeys.forEach(k => {
+    if (Object.prototype.hasOwnProperty.call(CALENDAR.colors, k)) {
+      CALENDAR.colors[k] = overrides.colors[k];
+    }
+  });
+
+  try {
+    return fn(overrides);
+  } finally {
+    Object.keys(setupSnapshot).forEach(k => { CALENDAR.setup[k] = setupSnapshot[k]; });
+    Object.keys(colorsSnapshot).forEach(k => { CALENDAR.colors[k] = colorsSnapshot[k]; });
+  }
+}
+
+// === End per-tab override =================================================
 
 function newCalendarSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -982,6 +1385,48 @@ function importTheme() {
     return;
   }
 
+  // Target: prompt only when active sheet is a calendar tab. From the Key
+  // tab or a regular data tab the only sensible target is the Key.
+  const activeSheet = ss.getActiveSheet();
+  let target = "key";
+  if (isCalendarSheet(activeSheet)) {
+    const choice = ui.alert(
+      "Apply theme",
+      'Apply "' + picked.name + '" to which target?\n\n' +
+      '• YES — only the active calendar tab "' + activeSheet.getName() + '"\n' +
+      '  (creates per-tab override columns if not present)\n\n' +
+      '• NO — the Key tab (affects every calendar without its own override)\n\n' +
+      '• CANCEL — abort',
+      ui.ButtonSet.YES_NO_CANCEL
+    );
+    if (choice === ui.Button.YES) target = "tab";
+    else if (choice === ui.Button.NO) target = "key";
+    else return;
+  }
+
+  if (target === "tab") {
+    if (!hasPerTabOverride_(activeSheet)) addPerTabOverride_(activeSheet);
+    const changes = applyThemeToTabOverride_(activeSheet, theme);
+
+    // Refresh the calendar so the theme takes effect immediately.
+    let refreshed = false;
+    try {
+      renderCalendarSheet(activeSheet);
+      refreshed = true;
+    } catch (err) {
+      Logger.log("Refresh after per-tab theme import failed: " + err.message);
+    }
+
+    ss.toast(
+      'Theme "' + picked.name + '" applied to "' + activeSheet.getName() + '" — ' +
+        themeChangeSummary_(changes) +
+        (refreshed ? '. Calendar refreshed.' : '. Refresh the calendar to see it.'),
+      CALENDAR.menuName,
+      8
+    );
+    return;
+  }
+
   let keySheet = ss.getSheetByName(CALENDAR.keySheetName);
   if (!keySheet) {
     keySheet = ss.insertSheet(CALENDAR.keySheetName);
@@ -990,10 +1435,203 @@ function importTheme() {
 
   const changes = applyThemeToKey_(keySheet, theme);
   ss.toast(
-    'Theme "' + picked.name + '" applied — ' + changes.colors + ' colors, ' + changes.setup + ' setup options updated. Refresh All Calendars to see it.',
+    'Theme "' + picked.name + '" applied to Key — ' +
+      themeChangeSummary_(changes) + '. Refresh All Calendars to see it.',
     CALENDAR.menuName,
     8
   );
+}
+
+function themeChangeSummary_(changes) {
+  const parts = [];
+  parts.push(changes.colors + ' colors');
+  parts.push(changes.setup + ' setup options');
+  if (changes.categories) parts.push(changes.categories + ' categories');
+  return parts.join(', ') + ' updated';
+}
+
+// Writes a theme into a calendar tab's per-tab override band (H–M). The band
+// must already exist (caller is responsible for addPerTabOverride_).
+// Skips theme.setup entries that aren't in perTabOverrideSetupOptions_(), so a
+// theme can be shared with the Key-target flow even if it sets excluded
+// options like showInitialMenu.
+function applyThemeToTabOverride_(sheet, theme) {
+  let colorChanges = 0;
+  let setupChanges = 0;
+
+  const setupOptions = perTabOverrideSetupOptions_();
+  const appearanceOptions = KEY_APPEARANCE_OPTIONS;
+
+  if (theme.colors && typeof theme.colors === "object" && appearanceOptions.length > 0) {
+    const values = sheet.getRange(
+      PER_TAB_OVERRIDE.dataStartRow,
+      PER_TAB_OVERRIDE.appearanceNameCol,
+      appearanceOptions.length,
+      2
+    ).getValues();
+    for (let i = 0; i < values.length; i++) {
+      const appearance = String(values[i][0] || "").trim();
+      if (!appearance) continue;
+      if (!Object.prototype.hasOwnProperty.call(theme.colors, appearance)) continue;
+      const newColor = String(theme.colors[appearance] || "").trim();
+      if (!looksLikeColor_(newColor)) continue;
+      const row = PER_TAB_OVERRIDE.dataStartRow + i;
+      sheet.getRange(row, PER_TAB_OVERRIDE.appearanceValueCol)
+        .setValue(newColor)
+        .setBackground(newColor)
+        .setFontColor(readableTextColor_(newColor));
+      colorChanges++;
+    }
+  }
+
+  if (theme.setup && typeof theme.setup === "object") {
+    Object.keys(theme.setup).forEach(option => {
+      const idx = setupOptions.indexOf(option);
+      if (idx < 0) return;
+      const row = PER_TAB_OVERRIDE.dataStartRow + idx;
+      sheet.getRange(row, PER_TAB_OVERRIDE.setupValueCol).setValue(theme.setup[option]);
+      setupChanges++;
+    });
+  }
+
+  // categoryPalette is positional: palette[0] → 1st named category in the
+  // override band's Category section, palette[1] → 2nd, etc.
+  let categoryChanges = 0;
+  if (Array.isArray(theme.categoryPalette) && theme.categoryPalette.length > 0) {
+    const categoryDataStartRow = perTabOverrideCategoryDataStartRow_();
+    const lastRow = sheet.getLastRow();
+    const maxScan = Math.min(50, Math.max(0, lastRow - categoryDataStartRow + 1));
+    if (maxScan > 0) {
+      const nameValues = sheet.getRange(
+        categoryDataStartRow,
+        PER_TAB_OVERRIDE.setupNameCol,
+        maxScan,
+        1
+      ).getValues();
+      let paletteIdx = 0;
+      for (let i = 0; i < nameValues.length && paletteIdx < theme.categoryPalette.length; i++) {
+        const name = String(nameValues[i][0] || "").trim();
+        if (!name) continue;
+        const color = String(theme.categoryPalette[paletteIdx] || "").trim();
+        paletteIdx++;
+        if (!looksLikeColor_(color)) continue;
+        const row = categoryDataStartRow + i;
+        sheet.getRange(row, PER_TAB_OVERRIDE.setupValueCol)
+          .setValue(color)
+          .setBackground(color)
+          .setFontColor(readableTextColor_(color));
+        categoryChanges++;
+      }
+    }
+  }
+
+  return { colors: colorChanges, setup: setupChanges, categories: categoryChanges };
+}
+
+// Adds the Theme Override band to the active calendar tab and pre-populates
+// every cell with the currently-effective value (script default overlaid with
+// Key overrides). Lets users see "what this tab is currently using" and then
+// modify individual cells to override, or clear them to inherit from the Key.
+function addThemeOverride() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  applyKeyOverrides_(ss);
+
+  const sheet = ss.getActiveSheet();
+  if (!isCalendarSheet(sheet)) {
+    ui.alert("Add Theme Override", "Switch to a calendar tab first.", ui.ButtonSet.OK);
+    return;
+  }
+  if (hasPerTabOverride_(sheet)) {
+    ui.alert(
+      "Add Theme Override",
+      '"' + sheet.getName() + '" already has a Theme Override. Expand columns H–M to edit it.',
+      ui.ButtonSet.OK
+    );
+    return;
+  }
+
+  addPerTabOverride_(sheet);
+  populatePerTabOverrideFromCurrent_(sheet);
+
+  ss.toast(
+    'Theme Override added to "' + sheet.getName() + '". Expand columns H–M to edit.',
+    CALENDAR.menuName,
+    6
+  );
+}
+
+// Pre-populate the override band with CALENDAR.setup / CALENDAR.colors values
+// that are currently in effect (after applyKeyOverrides_ runs). Caller is
+// responsible for ensuring the band exists and CALENDAR is up-to-date.
+function populatePerTabOverrideFromCurrent_(sheet) {
+  if (!hasPerTabOverride_(sheet)) return;
+
+  const setupOptions = perTabOverrideSetupOptions_();
+  if (setupOptions.length > 0) {
+    const values = setupOptions.map(opt => {
+      const v = Object.prototype.hasOwnProperty.call(CALENDAR.setup, opt)
+        ? CALENDAR.setup[opt]
+        : "";
+      // Booleans use the "TRUE"/"FALSE" tokens the 3-state dropdown expects.
+      if (PER_TAB_OVERRIDE_BOOLEAN_OPTIONS.indexOf(opt) >= 0) {
+        return [v ? "TRUE" : "FALSE"];
+      }
+      return [serializeKeyValue_(v)];
+    });
+    sheet.getRange(
+      PER_TAB_OVERRIDE.dataStartRow,
+      PER_TAB_OVERRIDE.setupValueCol,
+      values.length,
+      1
+    ).setValues(values);
+  }
+
+  const appearanceOptions = KEY_APPEARANCE_OPTIONS;
+  if (appearanceOptions.length > 0) {
+    const values = appearanceOptions.map(opt => {
+      const v = Object.prototype.hasOwnProperty.call(CALENDAR.colors, opt)
+        ? CALENDAR.colors[opt]
+        : "";
+      return [v];
+    });
+    sheet.getRange(
+      PER_TAB_OVERRIDE.dataStartRow,
+      PER_TAB_OVERRIDE.appearanceValueCol,
+      values.length,
+      1
+    ).setValues(values);
+
+    values.forEach((row, i) => {
+      const color = String(row[0] || "").trim();
+      if (looksLikeColor_(color)) {
+        sheet.getRange(
+          PER_TAB_OVERRIDE.dataStartRow + i,
+          PER_TAB_OVERRIDE.appearanceValueCol
+        )
+          .setBackground(color)
+          .setFontColor(readableTextColor_(color));
+      }
+    });
+  }
+
+  // Category section: rewrite rows with current Key category names + colors,
+  // applying live background to color cells.
+  const keyCategories = readKeyCategoriesDisplay_(sheet.getParent());
+  if (keyCategories.length > 0) {
+    const categoryDataStartRow = perTabOverrideCategoryDataStartRow_();
+    const rows = keyCategories.map(p => [String(p[0] || "").trim(), String(p[1] || "").trim()]);
+    sheet.getRange(categoryDataStartRow, PER_TAB_OVERRIDE.setupNameCol, rows.length, 2)
+      .setValues(rows);
+    rows.forEach((row, i) => {
+      const color = row[1];
+      if (looksLikeColor_(color)) {
+        sheet.getRange(categoryDataStartRow + i, PER_TAB_OVERRIDE.setupValueCol)
+          .setBackground(color)
+          .setFontColor(readableTextColor_(color));
+      }
+    });
+  }
 }
 
 function fetchThemeManifest_() {
@@ -1030,6 +1668,7 @@ function fetchTheme_(filename) {
 function applyThemeToKey_(keySheet, theme) {
   let colorChanges = 0;
   let setupChanges = 0;
+  let categoryChanges = 0;
 
   if (theme.colors && typeof theme.colors === "object") {
     const lastRow = keySheet.getLastRow();
@@ -1062,10 +1701,37 @@ function applyThemeToKey_(keySheet, theme) {
     });
   }
 
+  // categoryPalette is positional: palette[0] → 1st named category in the
+  // Key's Category section, palette[1] → 2nd, etc. Categories beyond the
+  // palette length keep their existing colors.
+  if (Array.isArray(theme.categoryPalette) && theme.categoryPalette.length > 0) {
+    const lastRow = keySheet.getLastRow();
+    if (lastRow >= 2) {
+      const categoryValues = keySheet.getRange(2, 4, lastRow - 1, 1).getValues();
+      let paletteIdx = 0;
+      for (let i = 0; i < categoryValues.length && paletteIdx < theme.categoryPalette.length; i++) {
+        const name = String(categoryValues[i][0] || "").trim();
+        if (!name) continue;
+        const color = String(theme.categoryPalette[paletteIdx] || "").trim();
+        paletteIdx++;
+        if (!looksLikeColor_(color)) continue;
+        const row = i + 2;
+        keySheet.getRange(row, 5)
+          .setValue(color);
+        // The Key tab styles both Category name and Color cells with the
+        // background color — mirror what buildKeySheet_ does at creation.
+        keySheet.getRange(row, 4, 1, 2)
+          .setBackground(color)
+          .setFontColor(readableTextColor_(color));
+        categoryChanges++;
+      }
+    }
+  }
+
   applyKeyOverrides_(keySheet.getParent());
   applyKeySetupValidations_(keySheet);
 
-  return { colors: colorChanges, setup: setupChanges };
+  return { colors: colorChanges, setup: setupChanges, categories: categoryChanges };
 }
 
 function buildEventsSheet_(sheet) {
@@ -1257,6 +1923,31 @@ function readDefaultDataSheetHeaders_(ss) {
   return readHeaders_(sheet);
 }
 
+// Reads Key categories preserving display case (readKeyConfig_ normalizes the
+// keys for lookup). Returns [[name, color], ...]. Falls back to script
+// defaults if the Key tab is missing or has no usable Category column.
+function readKeyCategoriesDisplay_(ss) {
+  const sheet = ss.getSheetByName(CALENDAR.keySheetName);
+  if (!sheet) return CALENDAR.keyDefaults.categories.slice();
+
+  const values = sheet.getDataRange().getValues();
+  if (!values || values.length < 2) return CALENDAR.keyDefaults.categories.slice();
+
+  const header = values[0].map(v => String(v || "").trim());
+  const categoryCol = findColumnIndex(header, ["Category"]);
+  const categoryColorCol = findColumnIndex(header, ["Category-Color", "Category Color", "Color"]);
+  if (categoryCol < 0) return CALENDAR.keyDefaults.categories.slice();
+
+  const out = [];
+  values.slice(1).forEach(row => {
+    const name = String(row[categoryCol] || "").trim();
+    if (!name) return;
+    const color = categoryColorCol >= 0 ? String(row[categoryColorCol] || "").trim() : "";
+    out.push([name, color]);
+  });
+  return out.length ? out : CALENDAR.keyDefaults.categories.slice();
+}
+
 
 
 function onEdit(e) {
@@ -1271,6 +1962,8 @@ function onEdit(e) {
   }
 
   if (!isCalendarSheet(sheet)) return;
+
+  formatEditedPerTabOverrideCell_(e.range);
 
   const cell = e.range.getA1Notation();
 
@@ -1430,9 +2123,29 @@ function initializeCalendarSheet(sheet, period, year, sourceSpec) {
 function renderCalendarSheet(sheet, controlsOverride) {
   const ss = sheet.getParent();
   applyKeyOverrides_(ss);
+
+  // Per-tab overrides layer on top of Key for the duration of this render,
+  // then are restored so the next calendar in Refresh All starts clean.
+  withPerTabOverridesApplied_(sheet, (overrides) => {
+    renderCalendarSheetBody_(sheet, controlsOverride, overrides);
+  });
+}
+
+function renderCalendarSheetBody_(sheet, controlsOverride, overrides) {
+  const ss = sheet.getParent();
   const controls = controlsOverride || getLiveControls_(sheet);
   const source = loadSourceData(ss, controls.sourceSpec);
   const keyConfig = readKeyConfig_(ss);
+
+  // Layer per-tab category color overrides on top of keyConfig's Key-derived
+  // map. Setup + appearance overrides were already applied to CALENDAR.* by
+  // withPerTabOverridesApplied_; category colors aren't part of CALENDAR.* so
+  // they're merged here instead.
+  if (overrides && overrides.categoryColors) {
+    Object.keys(overrides.categoryColors).forEach(k => {
+      keyConfig.categoryColors[k] = overrides.categoryColors[k];
+    });
+  }
 
   const renderControls = normalizeControlsForRender_(controls);
   rebuildCalendarCanvas(sheet, renderControls);
