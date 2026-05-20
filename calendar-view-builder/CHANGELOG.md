@@ -5,6 +5,14 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.10.5
+
+### Changed
+
+- Additional event fields (the lines below the title, e.g. `Owner: James`) are now rendered with a single leading space, so they sit slightly indented under the event title. The leading space is included in the label-styling range so bold/color tokens still apply correctly.
+
+---
+
 ## v13.10.4
 
 ### Fixed

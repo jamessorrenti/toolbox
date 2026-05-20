@@ -140,7 +140,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.10.4",
+  version: "13.10.5",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -2296,8 +2296,10 @@ function buildAdditionalEventParts_(additional) {
       const name = applyCase_(item.name, item.labelCase);
       const value = applyCase_(item.value, item.valueCase);
       const hasLabel = !!item.showLabel;
-      const labelText = hasLabel ? `${name}:` : "";
-      const text = hasLabel ? `${labelText} ${value}` : value;
+      // Leading single space indents the line slightly under the event title.
+      // Included in labelText so any label styling (bold/color) covers it too.
+      const labelText = hasLabel ? ` ${name}:` : "";
+      const text = hasLabel ? `${labelText} ${value}` : ` ${value}`;
 
       return {
         text,

@@ -521,14 +521,16 @@ Additional fields support optional per-field tokens in the script parser.
 
 In the current renderer, styling applies to the **additional field label and colon only**, not the value.
 
+Each additional line is rendered with a single leading space to slightly indent it under the event title.
+
 Example display:
 
 ```text
 Campaign Launch
-Owner: James
+ Owner: James
 ```
 
-Only `Owner:` receives the configured additional label styling.
+Only `Owner:` receives the configured additional label styling (the leading space is included in the styled range, which is invisible).
 
 ---
 
@@ -692,5 +694,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.10.4
+v13.10.5
 ```
