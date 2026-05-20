@@ -122,6 +122,14 @@ function onOpen() {
   if (showImportThemeMenu) {
     if (!showEventListMenu && !showSetKeyFromEventListMenu) menu.addSeparator();
     menu.addItem("Import Theme", "importTheme");
+
+    // "Add Theme Override" appears when the active tab is a calendar without
+    // an override band. Menu state is rebuilt at onOpen, so switching tabs
+    // requires a reload to refresh the menu — handler also validates.
+    const activeForMenu = ss.getActiveSheet();
+    if (activeForMenu && isCalendarSheet(activeForMenu) && !hasPerTabOverride_(activeForMenu)) {
+      menu.addItem("Add Theme Override", "addThemeOverride");
+    }
   }
 
   if (showKeyConfiguratorMenuItems) {
@@ -391,7 +399,7 @@ const PER_TAB_OVERRIDE_BOOLEAN_OPTIONS = [
 ];
 
 const PER_TAB_OVERRIDE = {
-  header: "Per-Tab Override",
+  header: "Theme Override",
   importLabel: "Import Theme:",
   // Column layout (1-indexed): H I J K L M
   headerCol: 8,
@@ -1332,10 +1340,20 @@ function importTheme() {
   if (target === "tab") {
     if (!hasPerTabOverride_(activeSheet)) addPerTabOverride_(activeSheet);
     const changes = applyThemeToTabOverride_(activeSheet, theme);
+
+    // Refresh the calendar so the theme takes effect immediately.
+    let refreshed = false;
+    try {
+      renderCalendarSheet(activeSheet);
+      refreshed = true;
+    } catch (err) {
+      Logger.log("Refresh after per-tab theme import failed: " + err.message);
+    }
+
     ss.toast(
       'Theme "' + picked.name + '" applied to "' + activeSheet.getName() + '" — ' +
-        changes.colors + ' colors, ' + changes.setup +
-        ' setup options updated. Refresh this calendar to see it.',
+        changes.colors + ' colors, ' + changes.setup + ' setup options updated' +
+        (refreshed ? ' and calendar refreshed.' : '. Refresh the calendar to see it.'),
       CALENDAR.menuName,
       8
     );
@@ -1403,6 +1421,94 @@ function applyThemeToTabOverride_(sheet, theme) {
   }
 
   return { colors: colorChanges, setup: setupChanges };
+}
+
+// Adds the Theme Override band to the active calendar tab and pre-populates
+// every cell with the currently-effective value (script default overlaid with
+// Key overrides). Lets users see "what this tab is currently using" and then
+// modify individual cells to override, or clear them to inherit from the Key.
+function addThemeOverride() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  applyKeyOverrides_(ss);
+
+  const sheet = ss.getActiveSheet();
+  if (!isCalendarSheet(sheet)) {
+    ui.alert("Add Theme Override", "Switch to a calendar tab first.", ui.ButtonSet.OK);
+    return;
+  }
+  if (hasPerTabOverride_(sheet)) {
+    ui.alert(
+      "Add Theme Override",
+      '"' + sheet.getName() + '" already has a Theme Override. Expand columns H–M to edit it.',
+      ui.ButtonSet.OK
+    );
+    return;
+  }
+
+  addPerTabOverride_(sheet);
+  populatePerTabOverrideFromCurrent_(sheet);
+
+  ss.toast(
+    'Theme Override added to "' + sheet.getName() + '". Expand columns H–M to edit.',
+    CALENDAR.menuName,
+    6
+  );
+}
+
+// Pre-populate the override band with CALENDAR.setup / CALENDAR.colors values
+// that are currently in effect (after applyKeyOverrides_ runs). Caller is
+// responsible for ensuring the band exists and CALENDAR is up-to-date.
+function populatePerTabOverrideFromCurrent_(sheet) {
+  if (!hasPerTabOverride_(sheet)) return;
+
+  const setupOptions = perTabOverrideSetupOptions_();
+  if (setupOptions.length > 0) {
+    const values = setupOptions.map(opt => {
+      const v = Object.prototype.hasOwnProperty.call(CALENDAR.setup, opt)
+        ? CALENDAR.setup[opt]
+        : "";
+      // Booleans use the "TRUE"/"FALSE" tokens the 3-state dropdown expects.
+      if (PER_TAB_OVERRIDE_BOOLEAN_OPTIONS.indexOf(opt) >= 0) {
+        return [v ? "TRUE" : "FALSE"];
+      }
+      return [serializeKeyValue_(v)];
+    });
+    sheet.getRange(
+      PER_TAB_OVERRIDE.dataStartRow,
+      PER_TAB_OVERRIDE.setupValueCol,
+      values.length,
+      1
+    ).setValues(values);
+  }
+
+  const appearanceOptions = KEY_APPEARANCE_OPTIONS;
+  if (appearanceOptions.length > 0) {
+    const values = appearanceOptions.map(opt => {
+      const v = Object.prototype.hasOwnProperty.call(CALENDAR.colors, opt)
+        ? CALENDAR.colors[opt]
+        : "";
+      return [v];
+    });
+    sheet.getRange(
+      PER_TAB_OVERRIDE.dataStartRow,
+      PER_TAB_OVERRIDE.appearanceValueCol,
+      values.length,
+      1
+    ).setValues(values);
+
+    values.forEach((row, i) => {
+      const color = String(row[0] || "").trim();
+      if (looksLikeColor_(color)) {
+        sheet.getRange(
+          PER_TAB_OVERRIDE.dataStartRow + i,
+          PER_TAB_OVERRIDE.appearanceValueCol
+        )
+          .setBackground(color)
+          .setFontColor(readableTextColor_(color));
+      }
+    });
+  }
 }
 
 function fetchThemeManifest_() {
