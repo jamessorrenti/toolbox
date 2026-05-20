@@ -65,7 +65,11 @@ This script is designed as a **bound Apps Script**, meaning it runs inside the s
 6. Reload the spreadsheet.
 7. Use the **Calendar Tools** menu.
 
-The first time you run a menu action, Google may ask you to authorize the script.
+### First-run authorization
+
+The first time you run a menu action, Google prompts you to authorize the script. Click **Continue**, pick your account, and approve the requested scopes (read/write the current spreadsheet, show modal dialogs). This is normal for any Apps Script add-on — the source is right there in **Extensions > Apps Script** for you to review.
+
+A separate authorization prompt appears the first time you run **Calendar Tools > Import Theme**. That action uses `UrlFetchApp` to read theme JSON from a public GitHub repo, which requires the additional `script.external_request` scope. Approve once and the prompt does not return.
 
 You can either run the **Optional first-time setup** below to scaffold everything in one click, or wire up your own source tab manually.
 
@@ -224,6 +228,8 @@ The walk-through never touches the event list tab itself. If the Key tab does no
 ## Import Theme
 
 `Calendar Tools > Import Theme` pulls themes from a public repo and writes the chosen palette into the Key tab.
+
+> **First-run note:** Import Theme uses `UrlFetchApp` to fetch the theme files, which triggers an extra Google authorization prompt the first time you run it (the `script.external_request` scope). Approve once and the prompt does not return. See [First-run authorization](#first-run-authorization).
 
 The flow:
 
