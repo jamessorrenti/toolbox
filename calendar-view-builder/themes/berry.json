@@ -4,6 +4,11 @@
   "setup": {
     "fontFamily": "Inter"
   },
+  "categoryPalette": [
+    "#C8E6C9",
+    "#BBDEFB",
+    "#E1BEE7"
+  ],
   "colors": {
     "titleBackground": "#4A0039",
     "titleFontColor": "#FFFFFF",

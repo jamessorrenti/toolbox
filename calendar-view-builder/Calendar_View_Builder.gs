@@ -1419,8 +1419,8 @@ function importTheme() {
 
     ss.toast(
       'Theme "' + picked.name + '" applied to "' + activeSheet.getName() + '" — ' +
-        changes.colors + ' colors, ' + changes.setup + ' setup options updated' +
-        (refreshed ? ' and calendar refreshed.' : '. Refresh the calendar to see it.'),
+        themeChangeSummary_(changes) +
+        (refreshed ? '. Calendar refreshed.' : '. Refresh the calendar to see it.'),
       CALENDAR.menuName,
       8
     );
@@ -1436,11 +1436,18 @@ function importTheme() {
   const changes = applyThemeToKey_(keySheet, theme);
   ss.toast(
     'Theme "' + picked.name + '" applied to Key — ' +
-      changes.colors + ' colors, ' + changes.setup +
-      ' setup options updated. Refresh All Calendars to see it.',
+      themeChangeSummary_(changes) + '. Refresh All Calendars to see it.',
     CALENDAR.menuName,
     8
   );
+}
+
+function themeChangeSummary_(changes) {
+  const parts = [];
+  parts.push(changes.colors + ' colors');
+  parts.push(changes.setup + ' setup options');
+  if (changes.categories) parts.push(changes.categories + ' categories');
+  return parts.join(', ') + ' updated';
 }
 
 // Writes a theme into a calendar tab's per-tab override band (H–M). The band
@@ -1487,7 +1494,38 @@ function applyThemeToTabOverride_(sheet, theme) {
     });
   }
 
-  return { colors: colorChanges, setup: setupChanges };
+  // categoryPalette is positional: palette[0] → 1st named category in the
+  // override band's Category section, palette[1] → 2nd, etc.
+  let categoryChanges = 0;
+  if (Array.isArray(theme.categoryPalette) && theme.categoryPalette.length > 0) {
+    const categoryDataStartRow = perTabOverrideCategoryDataStartRow_();
+    const lastRow = sheet.getLastRow();
+    const maxScan = Math.min(50, Math.max(0, lastRow - categoryDataStartRow + 1));
+    if (maxScan > 0) {
+      const nameValues = sheet.getRange(
+        categoryDataStartRow,
+        PER_TAB_OVERRIDE.setupNameCol,
+        maxScan,
+        1
+      ).getValues();
+      let paletteIdx = 0;
+      for (let i = 0; i < nameValues.length && paletteIdx < theme.categoryPalette.length; i++) {
+        const name = String(nameValues[i][0] || "").trim();
+        if (!name) continue;
+        const color = String(theme.categoryPalette[paletteIdx] || "").trim();
+        paletteIdx++;
+        if (!looksLikeColor_(color)) continue;
+        const row = categoryDataStartRow + i;
+        sheet.getRange(row, PER_TAB_OVERRIDE.setupValueCol)
+          .setValue(color)
+          .setBackground(color)
+          .setFontColor(readableTextColor_(color));
+        categoryChanges++;
+      }
+    }
+  }
+
+  return { colors: colorChanges, setup: setupChanges, categories: categoryChanges };
 }
 
 // Adds the Theme Override band to the active calendar tab and pre-populates
@@ -1630,6 +1668,7 @@ function fetchTheme_(filename) {
 function applyThemeToKey_(keySheet, theme) {
   let colorChanges = 0;
   let setupChanges = 0;
+  let categoryChanges = 0;
 
   if (theme.colors && typeof theme.colors === "object") {
     const lastRow = keySheet.getLastRow();
@@ -1662,10 +1701,37 @@ function applyThemeToKey_(keySheet, theme) {
     });
   }
 
+  // categoryPalette is positional: palette[0] → 1st named category in the
+  // Key's Category section, palette[1] → 2nd, etc. Categories beyond the
+  // palette length keep their existing colors.
+  if (Array.isArray(theme.categoryPalette) && theme.categoryPalette.length > 0) {
+    const lastRow = keySheet.getLastRow();
+    if (lastRow >= 2) {
+      const categoryValues = keySheet.getRange(2, 4, lastRow - 1, 1).getValues();
+      let paletteIdx = 0;
+      for (let i = 0; i < categoryValues.length && paletteIdx < theme.categoryPalette.length; i++) {
+        const name = String(categoryValues[i][0] || "").trim();
+        if (!name) continue;
+        const color = String(theme.categoryPalette[paletteIdx] || "").trim();
+        paletteIdx++;
+        if (!looksLikeColor_(color)) continue;
+        const row = i + 2;
+        keySheet.getRange(row, 5)
+          .setValue(color);
+        // The Key tab styles both Category name and Color cells with the
+        // background color — mirror what buildKeySheet_ does at creation.
+        keySheet.getRange(row, 4, 1, 2)
+          .setBackground(color)
+          .setFontColor(readableTextColor_(color));
+        categoryChanges++;
+      }
+    }
+  }
+
   applyKeyOverrides_(keySheet.getParent());
   applyKeySetupValidations_(keySheet);
 
-  return { colors: colorChanges, setup: setupChanges };
+  return { colors: colorChanges, setup: setupChanges, categories: categoryChanges };
 }
 
 function buildEventsSheet_(sheet) {

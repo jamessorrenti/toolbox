@@ -1,6 +1,11 @@
 {
   "name": "Pastels",
   "description": "Soft muted pastels. Lavender, blush, sage, sky — easy on the eyes.",
+  "categoryPalette": [
+    "#FCE4E8",
+    "#E0EDDA",
+    "#D8E6F0"
+  ],
   "colors": {
     "titleBackground": "#B8A9D9",
     "titleFontColor": "#3D2E5C",

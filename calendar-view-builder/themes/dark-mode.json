@@ -1,6 +1,11 @@
 {
   "name": "Dark Mode",
   "description": "Dark backgrounds with light text. Blue, green, and purple month accents.",
+  "categoryPalette": [
+    "#388BFD",
+    "#3FB950",
+    "#BC8CFF"
+  ],
   "colors": {
     "titleBackground": "#0F1419",
     "titleFontColor": "#E6EDF3",

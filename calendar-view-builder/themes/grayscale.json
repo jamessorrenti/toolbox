@@ -1,6 +1,11 @@
 {
   "name": "Grayscale",
   "description": "Pure monochrome. Title near-black, three month sections cycle through dark, medium, and light gray.",
+  "categoryPalette": [
+    "#D9D9D9",
+    "#A8A8A8",
+    "#777777"
+  ],
   "colors": {
     "titleBackground": "#1A1A1A",
     "titleFontColor": "#FFFFFF",
