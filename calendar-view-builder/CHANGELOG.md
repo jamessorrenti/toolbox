@@ -5,6 +5,19 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.5.1
+
+### Fixed
+
+- **Additional-field labels are bold again.** The batched renderer in v13.5.0 was applying cell-level `setFontWeights("normal")` and `setFontColors(...)` after `setRichTextValues(...)`, which clobbered the per-character bold and color encoded in each event's rich text. Font weight and color now live entirely inside the `RichTextValue`s, including for date cells and overflow ("More...") cells.
+- **Open Selected modal now finds events.** Apps Script starts each menu click in a fresh JS context, so `CALENDAR.setup` had script defaults instead of the user's Key-tab overrides. `openSelected` now calls `applyKeyOverrides_` before computing the selected date, so `maxEvents`, `startWeekOn`, and friends match what was actually rendered.
+
+### Changed
+
+- **New Calendar Sheet** is back to creating a tab named `Calendar View` (or `Calendar View (N)`), so the user can choose a period after the tab is created. **Add Q1-Q4** and **Add Jan-Dec** still name tabs after their period (`Q2 2026`, `May 2026`).
+
+---
+
 ## v13.5.0
 
 ### Added

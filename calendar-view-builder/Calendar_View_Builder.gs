@@ -89,7 +89,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.5.0",
+  version: "13.5.1",
   menuName: "Calendar Tools",
   showKeyConfiguratorMenuItems: true,
 
@@ -284,7 +284,7 @@ function newCalendarSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const period = currentMonthName();
   const year = currentYear();
-  const sheet = ss.insertSheet(uniqueSheetName(ss, buildCalendarSheetName_(period, year)));
+  const sheet = ss.insertSheet(uniqueSheetName(ss, CALENDAR.calendarBaseName));
 
   initializeCalendarSheet(sheet, period, year, getDefaultSourceSpec(ss));
   renderCalendarSheet(sheet);
@@ -293,6 +293,9 @@ function newCalendarSheet() {
   ss.toast("New calendar sheet created.", CALENDAR.menuName, 4);
 }
 
+// Used by Add Q1-Q4 and Add Jan-Dec, which name tabs after their period.
+// New Calendar Sheet intentionally uses the generic base name so the user can
+// pick a period after creation.
 function buildCalendarSheetName_(period, year) {
   const p = String(period || "").trim();
   const y = String(year || "").trim();
@@ -378,6 +381,10 @@ function openSelectedMore() {
 
 function openSelected() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  // Apps Script runs each menu click in a fresh JS context. Apply the user's
+  // Key-tab overrides so grid math (startWeekOn, maxEvents) matches what was
+  // rendered, otherwise the date computed from the selected cell can be wrong.
+  applyKeyOverrides_(ss);
   const sheet = ss.getActiveSheet();
   const range = sheet.getActiveRange();
 
@@ -1353,12 +1360,13 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
   const rowsPerWeek = 1 + maxEvents + 1;
   const bodyRows = 6 * rowsPerWeek;
 
+  // Font color + weight live inside the RichTextValues themselves. Cell-level
+  // setFontColors / setFontWeights would override the per-character bolding of
+  // additional-field labels, so we do not call them on the batched body.
   const blankRich = SpreadsheetApp.newRichTextValue().setText("").build();
 
   const richValues = [];
   const backgrounds = [];
-  const fontColors = [];
-  const fontWeights = [];
   const horizontalAlignments = [];
   const verticalAlignments = [];
   const notes = [];
@@ -1366,16 +1374,12 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
   for (let week = 0; week < 6; week++) {
     const dateRowRich = new Array(7);
     const dateRowBg = new Array(7);
-    const dateRowFc = new Array(7);
-    const dateRowFw = new Array(7);
     const dateRowHa = new Array(7);
     const dateRowVa = new Array(7);
     const dateRowNotes = new Array(7);
 
     const eventRowsRich = [];
     const eventRowsBg = [];
-    const eventRowsFc = [];
-    const eventRowsFw = [];
     const eventRowsHa = [];
     const eventRowsVa = [];
     const eventRowsNotes = [];
@@ -1383,8 +1387,6 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
     for (let i = 0; i < maxEvents + 1; i++) {
       eventRowsRich.push(new Array(7));
       eventRowsBg.push(new Array(7));
-      eventRowsFc.push(new Array(7));
-      eventRowsFw.push(new Array(7));
       eventRowsHa.push(new Array(7));
       eventRowsVa.push(new Array(7));
       eventRowsNotes.push(new Array(7));
@@ -1401,12 +1403,19 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
       const key = dateKey(cellDate);
       const events = eventsByDate[key] || [];
 
+      // Date cell: bold + colored, encoded in rich text.
+      const dateColor = inMonth ? theme.daysFontColor : theme.inactiveDaysFontColor;
+      const dateText = formatCalendarDateLabel_(cellDate);
+      const dateStyle = SpreadsheetApp.newTextStyle()
+        .setForegroundColor(dateColor)
+        .setFontFamily(fontFamily)
+        .setBold(true)
+        .build();
       dateRowRich[day] = SpreadsheetApp.newRichTextValue()
-        .setText(formatCalendarDateLabel_(cellDate))
+        .setText(dateText)
+        .setTextStyle(0, dateText.length, dateStyle)
         .build();
       dateRowBg[day] = inMonth ? theme.daysBackground : theme.inactiveDaysBackground;
-      dateRowFc[day] = inMonth ? theme.daysFontColor : theme.inactiveDaysFontColor;
-      dateRowFw[day] = "bold";
       dateRowHa[day] = "left";
       dateRowVa[day] = "middle";
       dateRowNotes[day] = "";
@@ -1418,41 +1427,43 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
         const event = visibleEvents[i];
         let rich = blankRich;
         let bg = inMonth ? CALENDAR.colors.eventDefaultBackground : theme.inactiveDaysBackground;
-        let fc = inMonth ? CALENDAR.colors.eventDefaultFontColor : theme.inactiveDaysFontColor;
 
         if (event) {
           const built = buildEventCellRichText_(event, inMonth, theme);
           rich = built.rich;
           bg = built.background;
-          fc = built.fontColor;
         }
 
         eventRowsRich[i][day] = rich;
         eventRowsBg[i][day] = bg;
-        eventRowsFc[i][day] = fc;
-        eventRowsFw[i][day] = "normal";
         eventRowsHa[i][day] = "left";
         eventRowsVa[i][day] = "top";
         eventRowsNotes[i][day] = "";
       }
 
+      // Overflow cell: bold + colored, encoded in rich text.
       const overflowIdx = maxEvents;
       if (overflowEvents.length > 0) {
         const text = overflowEvents.length === 1
           ? "1 More..."
           : (overflowEvents.length + " More...");
-        eventRowsRich[overflowIdx][day] = SpreadsheetApp.newRichTextValue().setText(text).build();
+        const ofColor = inMonth ? CALENDAR.colors.overflowFontColor : theme.inactiveDaysFontColor;
+        const ofStyle = SpreadsheetApp.newTextStyle()
+          .setForegroundColor(ofColor)
+          .setFontFamily(fontFamily)
+          .setBold(true)
+          .build();
+        eventRowsRich[overflowIdx][day] = SpreadsheetApp.newRichTextValue()
+          .setText(text)
+          .setTextStyle(0, text.length, ofStyle)
+          .build();
         eventRowsBg[overflowIdx][day] = inMonth ? CALENDAR.colors.overflowBackground : theme.inactiveDaysBackground;
-        eventRowsFc[overflowIdx][day] = inMonth ? CALENDAR.colors.overflowFontColor : theme.inactiveDaysFontColor;
-        eventRowsFw[overflowIdx][day] = "bold";
         eventRowsHa[overflowIdx][day] = "left";
         eventRowsVa[overflowIdx][day] = "top";
         eventRowsNotes[overflowIdx][day] = "Use Calendar Tools > Open Selected to view this date.";
       } else {
         eventRowsRich[overflowIdx][day] = blankRich;
         eventRowsBg[overflowIdx][day] = inMonth ? CALENDAR.colors.eventDefaultBackground : theme.inactiveDaysBackground;
-        eventRowsFc[overflowIdx][day] = inMonth ? CALENDAR.colors.eventDefaultFontColor : theme.inactiveDaysFontColor;
-        eventRowsFw[overflowIdx][day] = "normal";
         eventRowsHa[overflowIdx][day] = "left";
         eventRowsVa[overflowIdx][day] = "top";
         eventRowsNotes[overflowIdx][day] = "";
@@ -1461,8 +1472,6 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
 
     richValues.push(dateRowRich);
     backgrounds.push(dateRowBg);
-    fontColors.push(dateRowFc);
-    fontWeights.push(dateRowFw);
     horizontalAlignments.push(dateRowHa);
     verticalAlignments.push(dateRowVa);
     notes.push(dateRowNotes);
@@ -1470,8 +1479,6 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
     for (let i = 0; i < maxEvents + 1; i++) {
       richValues.push(eventRowsRich[i]);
       backgrounds.push(eventRowsBg[i]);
-      fontColors.push(eventRowsFc[i]);
-      fontWeights.push(eventRowsFw[i]);
       horizontalAlignments.push(eventRowsHa[i]);
       verticalAlignments.push(eventRowsVa[i]);
       notes.push(eventRowsNotes[i]);
@@ -1485,8 +1492,6 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
   body.setWrap(true);
   body.setRichTextValues(richValues);
   body.setBackgrounds(backgrounds);
-  body.setFontColors(fontColors);
-  body.setFontWeights(fontWeights);
   body.setHorizontalAlignments(horizontalAlignments);
   body.setVerticalAlignments(verticalAlignments);
   body.setNotes(notes);
