@@ -5,6 +5,19 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.12.2
+
+### Fixed
+
+- **Lazy refresh not firing for spreadsheets where the Key still says `defaultDataSheetName = "Events"`** (the script default) but calendars actually point at a different tab. `handleSourceEdit_` was comparing only against `CALENDAR.defaultDataSheetName`, so edits on the *real* source tab were treated as off-axis and `lastSourceChangeAt` was never stamped — meaning the on-tab-switch check then found nothing stale.
+- New `isSourceDataSheet_` helper accepts a sheet as a source if **either** it matches `CALENDAR.defaultDataSheetName` **or** any existing calendar tab's `G1` Source Data dropdown names it. This handles the common case where the Key hasn't been updated since v13.7.0's default-name change.
+
+### Changed
+
+- Stripped the diagnostic logging from v13.12.2-debug, kept two terse `Logger.log` lines: one when a source edit is recorded, one when an on-tab-switch refresh fires (for future debugging).
+
+---
+
 ## v13.12.1
 
 ### Changed
