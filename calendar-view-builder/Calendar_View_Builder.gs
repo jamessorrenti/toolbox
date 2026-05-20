@@ -79,11 +79,14 @@ function onOpen() {
     "showSetKeyFromEventListMenu",
     CALENDAR.showSetKeyFromEventListMenu
   );
+  // Show Import Theme when the Key toggle says so OR when any calendar tab
+  // has the per-tab override band — once a tab has overrides, the user needs
+  // a way to import a theme into it regardless of the global toggle.
   const showImportThemeMenu = getKeyBooleanOption_(
     ss,
     "showImportThemeMenu",
     CALENDAR.showImportThemeMenu
-  );
+  ) || hasAnyPerTabOverride_(ss);
   const showKeyConfiguratorMenuItems = getKeyBooleanOption_(
     ss,
     "showKeyConfiguratorMenuItems",
@@ -417,6 +420,20 @@ function hasPerTabOverride_(sheet) {
   }
 }
 
+// True if any sheet in the workbook has the per-tab override band. Used to
+// keep "Import Theme" reachable from the menu even when showImportThemeMenu
+// is FALSE in the Key — once a tab has overrides, the user needs a way to
+// import to it.
+function hasAnyPerTabOverride_(ss) {
+  try {
+    const sheets = ss.getSheets();
+    for (let i = 0; i < sheets.length; i++) {
+      if (hasPerTabOverride_(sheets[i])) return true;
+    }
+  } catch (err) {}
+  return false;
+}
+
 // Builds the per-tab override column band (H–M) on a calendar tab. Idempotent
 // — returns immediately if the band already exists.
 function addPerTabOverride_(sheet) {
@@ -445,17 +462,21 @@ function addPerTabOverride_(sheet) {
     .setHorizontalAlignment("center")
     .setVerticalAlignment("middle");
 
-  // Row 2: Import Theme action
-  sheet.getRange(PER_TAB_OVERRIDE.importRow, PER_TAB_OVERRIDE.headerCol)
-    .setValue(PER_TAB_OVERRIDE.importLabel)
-    .setFontWeight("bold")
+  // Row 2: informational pointer. We can't put a real "trigger import" control
+  // here because simple onEdit triggers can't call UrlFetchApp or ui.prompt
+  // (the authorization model forbids it). Instead, the presence of the
+  // override band makes "Import Theme" appear in Calendar Tools regardless of
+  // the showImportThemeMenu Key toggle (see onOpen).
+  sheet.getRange(PER_TAB_OVERRIDE.importRow, PER_TAB_OVERRIDE.headerCol, 1, headerColCount)
+    .merge()
+    .setValue("Use Calendar Tools → Import Theme → apply to this tab")
+    .setFontWeight("normal")
+    .setFontStyle("italic")
     .setFontFamily(fontFamily)
-    .setHorizontalAlignment("right");
-  sheet.getRange(PER_TAB_OVERRIDE.importRow, PER_TAB_OVERRIDE.setupNameCol)
-    .insertCheckboxes()
-    .setValue(false)
+    .setFontColor("#666666")
+    .setBackground("#FAFAFA")
     .setHorizontalAlignment("center")
-    .setNote("Check to import a theme into this tab's override section.");
+    .setVerticalAlignment("middle");
 
   // Row 3: column sub-headers
   const subHeaders = [["", "Option", "Value", "", "Appearance", "Color"]];
