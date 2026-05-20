@@ -525,17 +525,7 @@ function addPerTabOverride_(sheet) {
   sheet.setColumnWidth(PER_TAB_OVERRIDE.appearanceNameCol, 260);
   sheet.setColumnWidth(PER_TAB_OVERRIDE.appearanceValueCol, 130);
 
-  // 3-state dropdowns for boolean options
-  PER_TAB_OVERRIDE_BOOLEAN_OPTIONS.forEach(opt => {
-    const idx = setupOptions.indexOf(opt);
-    if (idx < 0) return;
-    const row = PER_TAB_OVERRIDE.dataStartRow + idx;
-    setDropdownValidation(
-      sheet.getRange(row, PER_TAB_OVERRIDE.setupValueCol),
-      ["TRUE", "FALSE"],
-      true
-    );
-  });
+  applyPerTabOverrideValidations_(sheet);
 
   // Group H–M and collapse
   try {
@@ -544,6 +534,81 @@ function addPerTabOverride_(sheet) {
     if (group) group.collapse();
   } catch (err) {
     Logger.log("Could not group per-tab override columns: " + err.message);
+  }
+}
+
+// Attach dropdowns to per-tab override value cells (column J). All use
+// allow-invalid=true so leaving the cell blank still means "inherit Key value".
+function applyPerTabOverrideValidations_(sheet) {
+  if (!hasPerTabOverride_(sheet)) return;
+
+  const setupOptions = perTabOverrideSetupOptions_();
+
+  // Booleans → 3-state ("", "TRUE", "FALSE")
+  PER_TAB_OVERRIDE_BOOLEAN_OPTIONS.forEach(opt => {
+    const idx = setupOptions.indexOf(opt);
+    if (idx < 0) return;
+    setDropdownValidation(
+      sheet.getRange(PER_TAB_OVERRIDE.dataStartRow + idx, PER_TAB_OVERRIDE.setupValueCol),
+      ["TRUE", "FALSE"],
+      true
+    );
+  });
+
+  // q1StartMonth → month names
+  const monthIdx = setupOptions.indexOf("q1StartMonth");
+  if (monthIdx >= 0) {
+    setDropdownValidation(
+      sheet.getRange(PER_TAB_OVERRIDE.dataStartRow + monthIdx, PER_TAB_OVERRIDE.setupValueCol),
+      CALENDAR.monthOptions.slice(),
+      true
+    );
+  }
+
+  // startWeekOn → day names + compressed weekend
+  const dayIdx = setupOptions.indexOf("startWeekOn");
+  if (dayIdx >= 0) {
+    setDropdownValidation(
+      sheet.getRange(PER_TAB_OVERRIDE.dataStartRow + dayIdx, PER_TAB_OVERRIDE.setupValueCol),
+      [
+        "Sunday", "Monday", "Tuesday", "Wednesday",
+        "Thursday", "Friday", "Saturday",
+        "Monday-CompressedWeekend"
+      ],
+      true
+    );
+  }
+
+  // customDate / customTitle / customAdditional → source headers
+  const headers = readDefaultDataSheetHeaders_(sheet.getParent());
+  ["customDate", "customTitle", "customAdditional"].forEach(opt => {
+    const idx = setupOptions.indexOf(opt);
+    if (idx < 0) return;
+    const cell = sheet.getRange(PER_TAB_OVERRIDE.dataStartRow + idx, PER_TAB_OVERRIDE.setupValueCol);
+    if (headers.length) {
+      setDropdownValidation(cell, headers, true);
+    } else {
+      cell.clearDataValidations();
+    }
+  });
+}
+
+// When a hex color is pasted into the M column of the per-tab override band,
+// apply it as the cell background (matching the Key tab's behavior).
+function formatEditedPerTabOverrideCell_(range) {
+  const col = range.getColumn();
+  if (col !== PER_TAB_OVERRIDE.appearanceValueCol) return;
+  const row = range.getRow();
+  if (row < PER_TAB_OVERRIDE.dataStartRow) return;
+
+  const sheet = range.getSheet();
+  if (!hasPerTabOverride_(sheet)) return;
+
+  const color = String(range.getValue() || "").trim();
+  if (looksLikeColor_(color)) {
+    range.setBackground(color).setFontColor(readableTextColor_(color));
+  } else {
+    range.setBackground(null).setFontColor(null);
   }
 }
 
@@ -1615,6 +1680,8 @@ function onEdit(e) {
   }
 
   if (!isCalendarSheet(sheet)) return;
+
+  formatEditedPerTabOverrideCell_(e.range);
 
   const cell = e.range.getA1Notation();
 
