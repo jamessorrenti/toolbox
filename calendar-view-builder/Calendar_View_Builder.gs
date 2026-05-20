@@ -53,6 +53,15 @@ function onOpen() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   applyKeyOverrides_(ss);
 
+  const keySheet = ss.getSheetByName(CALENDAR.keySheetName);
+  if (keySheet) {
+    try {
+      applyKeySetupValidations_(keySheet);
+    } catch (err) {
+      Logger.log("Could not refresh Key dropdowns on open: " + err.message);
+    }
+  }
+
   const ui = SpreadsheetApp.getUi();
 
   const showInitialMenu = getKeyBooleanOption_(
@@ -121,7 +130,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.7.0",
+  version: "13.8.0",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -150,7 +159,7 @@ const CALENDAR = {
   ],
 
   setup: {
-    q1StartMonth: "February",
+    q1StartMonth: "January",
     q1StartDay: 1,
     startWeekOn: "Sunday",
     dayFormat: "EEEE",
@@ -696,7 +705,14 @@ function setKeyFromEventList() {
     buildKeySheet_(keySheet);
   }
 
-  applyKeyFromEventList_(keySheet, { dateColumn, titleColumn, types, categories, statuses });
+  applyKeyFromEventList_(keySheet, {
+    eventListName: eventSheet.getName(),
+    dateColumn,
+    titleColumn,
+    types,
+    categories,
+    statuses
+  });
   ss.toast("Key updated from \"" + eventSheet.getName() + "\".", CALENDAR.menuName, 5);
 }
 
@@ -869,8 +885,16 @@ function applyKeyFromEventList_(keySheet, config) {
     keySheet.getRange(2, 7, rows.length, 2).setValues(rows);
   }
 
+  if (config.eventListName) {
+    updateKeyOptionValue_(keySheet, "defaultDataSheetName", config.eventListName);
+    // Update the in-memory CALENDAR.defaultDataSheetName so the customDate /
+    // customTitle dropdowns below populate from the right tab.
+    applyKeyOverrides_(keySheet.getParent());
+  }
   if (config.dateColumn) updateKeyOptionValue_(keySheet, "customDate", config.dateColumn);
   if (config.titleColumn) updateKeyOptionValue_(keySheet, "customTitle", config.titleColumn);
+
+  applyKeySetupValidations_(keySheet);
 }
 
 function pairsToMap_(pairs) {
@@ -993,6 +1017,7 @@ function buildKeySheet_(sheet) {
   }
 
   applyKeySetupConditionalFormatting_(sheet);
+  applyKeySetupValidations_(sheet);
 
   try {
     sheet.getRange("K:O").shiftColumnGroupDepth(1);
@@ -1001,6 +1026,61 @@ function buildKeySheet_(sheet) {
   } catch (err) {
     Logger.log("Could not group/collapse K:O: " + err.message);
   }
+}
+
+// Attach dropdowns to the value cells (column L = 12) of specific setup
+// options so users can pick from valid choices instead of typing.
+//   q1StartMonth         — month names (strict)
+//   startWeekOn          — day names (strict)
+//   defaultDataSheetName — list of available tabs (allow-invalid)
+//   customDate           — headers of the resolved defaultDataSheetName
+//   customTitle          — headers of the resolved defaultDataSheetName
+// Safe to call repeatedly; setDataValidation just replaces any prior rule.
+function applyKeySetupValidations_(sheet) {
+  const ss = sheet.getParent();
+
+  const monthRow = findKeyOptionRow_(sheet, "q1StartMonth");
+  if (monthRow) {
+    setDropdownValidation(sheet.getRange(monthRow, 12), CALENDAR.monthOptions.slice(), false);
+  }
+
+  const dayRow = findKeyOptionRow_(sheet, "startWeekOn");
+  if (dayRow) {
+    setDropdownValidation(
+      sheet.getRange(dayRow, 12),
+      ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+      false
+    );
+  }
+
+  const tabRow = findKeyOptionRow_(sheet, "defaultDataSheetName");
+  if (tabRow) {
+    const names = buildSourceSheetNames_(ss);
+    if (names.length) {
+      setDropdownValidation(sheet.getRange(tabRow, 12), names, true);
+    } else {
+      sheet.getRange(tabRow, 12).clearDataValidations();
+    }
+  }
+
+  const headers = readDefaultDataSheetHeaders_(ss);
+  ["customDate", "customTitle"].forEach(optionName => {
+    const row = findKeyOptionRow_(sheet, optionName);
+    if (!row) return;
+    if (headers.length) {
+      setDropdownValidation(sheet.getRange(row, 12), headers, true);
+    } else {
+      sheet.getRange(row, 12).clearDataValidations();
+    }
+  });
+}
+
+function readDefaultDataSheetHeaders_(ss) {
+  const name = CALENDAR.defaultDataSheetName;
+  if (!name) return [];
+  const sheet = ss.getSheetByName(name);
+  if (!sheet) return [];
+  return readHeaders_(sheet);
 }
 
 
@@ -1012,6 +1092,7 @@ function onEdit(e) {
 
   if (sheet.getName() === CALENDAR.keySheetName) {
     formatEditedKeyCell_(e.range);
+    refreshKeyHeaderDropdownsOnEdit_(e.range);
     return;
   }
 
@@ -1081,6 +1162,22 @@ function onSelectionChange(e) {
 
 
 
+
+// When the value cell next to defaultDataSheetName changes, the headers of the
+// resolved source tab may have changed too, so refresh the customDate /
+// customTitle dropdowns.
+function refreshKeyHeaderDropdownsOnEdit_(range) {
+  if (range.getColumn() !== 12) return;
+  const row = range.getRow();
+  if (row < 2) return;
+
+  const sheet = range.getSheet();
+  const optionName = String(sheet.getRange(row, 11).getValue() || "").trim();
+  if (optionName !== "defaultDataSheetName") return;
+
+  applyKeyOverrides_(sheet.getParent());
+  applyKeySetupValidations_(sheet);
+}
 
 function formatEditedKeyCell_(range) {
   const row = range.getRow();

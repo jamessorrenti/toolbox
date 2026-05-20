@@ -203,8 +203,9 @@ The flow:
    - `1,3,5` picks numbered options from the offered list.
    - `Webinar, Direct Mail, Custom Name` accepts any mix of numbers and custom names (custom names are added as-is).
 6. Confirm the summary. The Key tab is updated:
+   - `defaultDataSheetName` is set to the chosen event list tab so the rest of the Calendar Tools menu targets the same sheet.
    - `Type`, `Category`, and `Status` sections are replaced with the chosen values. Matching default icons / colors from the script are reused; new categories get colors rotated from the default palette.
-   - `customDate` and `customTitle` in the setup section are updated to match your choices.
+   - `customDate` and `customTitle` in the setup section are updated to match your choices, and their dropdowns refresh to the new tab's headers.
 
 The walk-through never touches the event list tab itself. If the Key tab does not exist, it is created first.
 
@@ -312,20 +313,20 @@ Setup options are generated from the script defaults. The `Key` tab can override
 
 | Option | Script default | Key default | Description |
 |---|---|---|---|
-| `defaultDataSheetName` | `Events` | `Events` | Source tab the menu items target (Initial Setup, Create Event List, Key Configurator) |
+| `defaultDataSheetName` | `Events` | `Events` | Source tab the menu items target (Initial Setup, Create Event List, Key Configurator). Dropdown of available tabs; accepts custom names. |
 | `showInitialMenu` | `TRUE` | `FALSE` | Show the **Initial Setup** menu item |
 | `showEventListMenu` | `TRUE` | `FALSE` | Show the **Create Event List** menu item |
 | `showSetKeyFromEventListMenu` | `TRUE` | `FALSE` | Show the **Set Key From Event List** menu item |
 | `showKeyConfiguratorMenuItems` | `TRUE` | `FALSE` | Show the three Key Configurator menu items |
 | `frozenWeekdayHeader` | `TRUE` | `FALSE` | Show a frozen weekday header row |
-| `customDate` | `Date` | `Date` | Source column used for event dates |
-| `customTitle` | `Title` | `Title` | Source column used for event titles |
+| `customDate` | `Date` | `Date` | Source column used for event dates. Dropdown of headers from `defaultDataSheetName`; accepts custom names. |
+| `customTitle` | `Title` | `Title` | Source column used for event titles. Dropdown of headers from `defaultDataSheetName`; accepts custom names. |
 | `maxEvents` | `4` | `4` | Maximum visible events per day before showing More |
 | `customAdditional` | `Owner` | `Owner` | Additional source fields to display below event title |
 | `customAdditionalLabels` | `TRUE` | `TRUE` | Show labels for additional fields |
 | `customAdditionalLabelsStyle` | `Bold` | `Bold` | Style applied to additional field labels |
-| `q1StartMonth` | `February` | `February` | Month used as the start of Q1 |
-| `startWeekOn` | `Sunday` | `Sunday` | First day of the week |
+| `q1StartMonth` | `January` | `January` | Month used as the start of Q1. Dropdown of month names. |
+| `startWeekOn` | `Sunday` | `Sunday` | First day of the week. Dropdown of day names. |
 | `dayFormat` | `EEEE` | `EEEE` | Format for weekday labels |
 | `dateFormat` | `d` | `d` | Format for date labels inside calendar cells |
 | `monthFormat` | `MMMM` | `MMMM` | Format for month headers |
@@ -603,5 +604,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.7.0
+v13.8.0
 ```

@@ -5,6 +5,25 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.8.0
+
+### Added
+
+- Dropdown data validation on the Key tab for five setup options:
+  - `q1StartMonth` — month names (strict).
+  - `startWeekOn` — day names (strict).
+  - `defaultDataSheetName` — available tabs in the spreadsheet (accepts custom names).
+  - `customDate` — headers of the resolved `defaultDataSheetName` tab (accepts custom names).
+  - `customTitle` — same as `customDate`.
+- `customDate` / `customTitle` dropdowns automatically refresh when `defaultDataSheetName` changes (manual edit on the Key tab, or via **Set Key From Event List**). Dropdowns are also refreshed on every spreadsheet open so newly-added tabs and source columns appear without manual intervention.
+
+### Changed
+
+- **Set Key From Event List** now also sets `defaultDataSheetName` to the chosen event list tab, so the rest of the Calendar Tools menu targets the same sheet without a separate step.
+- Default `q1StartMonth` is now `January` (was `February`). Override it in the Key tab for fiscal calendars that start elsewhere.
+
+---
+
 ## v13.7.0
 
 ### Added
