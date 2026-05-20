@@ -5,6 +5,53 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.12.2
+
+### Fixed
+
+- **Lazy refresh not firing for spreadsheets where the Key still says `defaultDataSheetName = "Events"`** (the script default) but calendars actually point at a different tab. `handleSourceEdit_` was comparing only against `CALENDAR.defaultDataSheetName`, so edits on the *real* source tab were treated as off-axis and `lastSourceChangeAt` was never stamped — meaning the on-tab-switch check then found nothing stale.
+- New `isSourceDataSheet_` helper accepts a sheet as a source if **either** it matches `CALENDAR.defaultDataSheetName` **or** any existing calendar tab's `G1` Source Data dropdown names it. This handles the common case where the Key hasn't been updated since v13.7.0's default-name change.
+
+### Changed
+
+- Stripped the diagnostic logging from v13.12.2-debug, kept two terse `Logger.log` lines: one when a source edit is recorded, one when an on-tab-switch refresh fires (for future debugging).
+
+---
+
+## v13.12.1
+
+### Changed
+
+- **Auto-Refresh is now controlled by a Key toggle, default ON.** Replaces the v13.12.0 menu-based Enable/Disable pattern. The Key tab's Additional Setup block has a new `autoRefresh` checkbox (defaults to `TRUE` when the Key is created, defaults to `TRUE` script-side for spreadsheets without the row yet). Existing spreadsheets get Auto-Refresh enabled automatically — no menu click required.
+- The `Enable Auto-Refresh` / `Disable Auto-Refresh` menu items and the `showAutoRefreshMenu` toggle are removed.
+- The 15-minute installable safety-net trigger is no longer installed by default. If you previously installed one via v13.12.0, it'll keep firing harmlessly through the same gate (it checks the Key toggle now); delete it from the Apps Script editor's Triggers panel if you don't want it.
+- `onSelectionChange` and `handleSourceEdit_` now call `applyKeyOverrides_` *before* checking the Auto-Refresh toggle, so the Key's value is reflected in the fresh JS context that simple triggers run in.
+
+### Notes
+
+- This drops the "user is staring at the calendar while someone else edits source" safety-net case. If that becomes a real problem, we'll add back an opt-in scheduled trigger.
+
+---
+
+## v13.12.0
+
+### Added
+
+- **Auto-Refresh on tab switch.** Opt-in via `Calendar Tools → Enable Auto-Refresh`. When enabled:
+  - Edits to relevant columns on the source event list (Date / Title / Type / Category / Status / customAdditional, plus their fallback aliases) record a `lastSourceChangeAt` timestamp in shared `DocumentProperties`. Format, color, and other off-axis edits do not.
+  - When a user switches *to* a calendar tab, if that calendar's per-sheet refresh timestamp is older than the most-recent source edit, the calendar re-renders. Switching cells within the same sheet does not trigger anything.
+  - A 15-minute installable time-based trigger acts as a safety net for "user is staring at a calendar while someone else edits source" — it silently calls `refreshAllCalendars`.
+  - Disabling Auto-Refresh deletes the installable trigger and unsets the enabled flag. Auto-Refresh state is per-spreadsheet (shared `DocumentProperties`); the installable trigger is owned by whoever clicked Enable.
+- `showAutoRefreshMenu` Key toggle (default `TRUE` in script, `FALSE` in Key) gates the new menu item.
+- `refreshAllCalendars(opts)` now accepts `{ silent: true }` to suppress the working modal and toasts — used by the scheduled refresh so the UI doesn't pop up in the background.
+
+### Notes
+
+- The on-tab-switch refresh runs inside `onSelectionChange`, which is a simple trigger with a 30-second execution cap. Refreshing a single calendar typically takes 1–3 seconds with batched rendering, well under the cap.
+- The installable safety-net trigger requires authorization the first time you enable Auto-Refresh.
+
+---
+
 ## v13.11.0
 
 ### Added

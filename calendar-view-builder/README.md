@@ -355,6 +355,43 @@ When **any** calendar tab has a Theme Override band, `Calendar Tools → Import 
 
 ---
 
+## Auto-Refresh
+
+Calendars update themselves when you switch to them, controlled by the **`autoRefresh`** checkbox in the Key tab (defaults to `TRUE`).
+
+When enabled:
+
+1. Every time someone edits a relevant column on the source event list (`Date`, `Title`, `Type`, `Category`, `Status`, or one of the `customAdditional` fields, plus their fallback aliases), the script stamps a `lastSourceChangeAt` timestamp.
+2. When *any* user then **switches to a calendar tab**, the script checks whether that calendar's last refresh predates the most-recent source edit. If so, it silently re-renders just that one calendar.
+
+To turn it off, uncheck `autoRefresh` in the Key tab's Additional Setup block.
+
+### What counts as a "relevant" edit
+
+Only the columns the renderer actually consumes invalidate calendars:
+
+- The configured `customDate` and `customTitle` columns
+- Common date / title aliases: `Date`, `Start Date`, `Event Date`, `Title`, `Name`, etc.
+- `Type`, `Event Type`, `Channel`, `Tactic Type`
+- `Category`, `Event Category`, `Theme`, `Product`, `Pillar`
+- `Status`, `Event Status`
+- `Description`, `Details` (used for hyperlink targets)
+- Any columns named by `customAdditional`
+
+Format-only changes, color, and edits to unrelated columns do not invalidate. (Direct edits to the calendar canvas, the Key tab, or the per-tab Theme Override band are unrelated to Auto-Refresh — they don't trigger source-edit invalidation, but they may need a manual refresh for very specific cases.)
+
+### Multi-user behavior
+
+- The `autoRefresh` toggle and the per-calendar refresh timestamps live in the spreadsheet's `Key` tab and `DocumentProperties` respectively — shared across users.
+- Each user's "previous active sheet" tracker lives in their own `UserProperties`, so two editors navigating in parallel don't fight each other.
+
+### Limitations
+
+- The simple `onSelectionChange` trigger has a 30-second execution cap. A single calendar refresh is typically 1–3 s with batched rendering, well under the cap. If a calendar render takes longer than 30 s, the on-switch refresh might time out (manual refresh still works).
+- If you're already viewing a calendar tab when someone else edits the source, your calendar won't update until you switch away and back — or click the refresh box / menu manually.
+
+---
+
 ## Calendar controls
 
 Each calendar tab includes controls in the top rows.
@@ -463,6 +500,7 @@ Setup options are generated from the script defaults. The `Key` tab can override
 | `showSetKeyFromEventListMenu` | `TRUE` | `FALSE` | Show the **Set Key From Event List** menu item |
 | `showImportThemeMenu` | `TRUE` | `FALSE` | Show the **Import Theme** menu item |
 | `showKeyConfiguratorMenuItems` | `TRUE` | `FALSE` | Show the three Key Configurator menu items |
+| `autoRefresh` | `TRUE` | `TRUE` | When `TRUE`, calendars auto-refresh on tab switch after source edits. See [Auto-Refresh](#auto-refresh). |
 | `frozenWeekdayHeader` | `TRUE` | `FALSE` | Show a frozen weekday header row |
 | `customDate` | `Date` | `Date` | Source column used for event dates. Dropdown of headers from `defaultDataSheetName`; accepts custom names. |
 | `customTitle` | `Title` | `Title` | Source column used for event titles. Dropdown of headers from `defaultDataSheetName`; accepts custom names. |
@@ -751,5 +789,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.11.0
+v13.12.2
 ```
