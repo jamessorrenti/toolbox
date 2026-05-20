@@ -130,7 +130,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.8.0",
+  version: "13.9.0",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -1048,7 +1048,16 @@ function applyKeySetupValidations_(sheet) {
   if (dayRow) {
     setDropdownValidation(
       sheet.getRange(dayRow, 12),
-      ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+      [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Monday-CompressedWeekend"
+      ],
       false
     );
   }
@@ -1287,7 +1296,13 @@ function renderCalendarSheet(sheet, controlsOverride) {
     row += getMonthBlockRows_();
   });
 
-  sheet.setColumnWidths(1, 7, 145);
+  if (isCompressedWeekend_()) {
+    // Mon-Fri at standard width, Sat + Sun at half width.
+    sheet.setColumnWidths(1, 5, 145);
+    sheet.setColumnWidths(6, 2, 72);
+  } else {
+    sheet.setColumnWidths(1, 7, 145);
+  }
 }
 
 function rebuildCalendarCanvas(sheet, controls) {
@@ -2288,9 +2303,14 @@ function getWeekdayLabels() {
 function getWeekStartIndex_() {
   const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const configured = String(CALENDAR.setup.startWeekOn || "Sunday").trim();
+  if (configured === "Monday-CompressedWeekend") return 1;
   const index = days.indexOf(configured);
 
   return index >= 0 ? index : 0;
+}
+
+function isCompressedWeekend_() {
+  return String(CALENDAR.setup.startWeekOn || "").trim() === "Monday-CompressedWeekend";
 }
 
 function loadSourceData(ss, sourceSpec) {

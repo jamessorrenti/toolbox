@@ -5,6 +5,14 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.9.0
+
+### Added
+
+- New `startWeekOn` option: `Monday-CompressedWeekend`. Starts the week on Monday and renders Saturday + Sunday columns at half width (72px vs the standard 145px), giving Mon-Fri more horizontal real estate for events.
+
+---
+
 ## v13.8.0
 
 ### Added

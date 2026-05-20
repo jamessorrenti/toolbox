@@ -326,7 +326,7 @@ Setup options are generated from the script defaults. The `Key` tab can override
 | `customAdditionalLabels` | `TRUE` | `TRUE` | Show labels for additional fields |
 | `customAdditionalLabelsStyle` | `Bold` | `Bold` | Style applied to additional field labels |
 | `q1StartMonth` | `January` | `January` | Month used as the start of Q1. Dropdown of month names. |
-| `startWeekOn` | `Sunday` | `Sunday` | First day of the week. Dropdown of day names. |
+| `startWeekOn` | `Sunday` | `Sunday` | First day of the week. Dropdown of day names. `Monday-CompressedWeekend` starts on Monday and renders Saturday + Sunday columns at half width. |
 | `dayFormat` | `EEEE` | `EEEE` | Format for weekday labels |
 | `dateFormat` | `d` | `d` | Format for date labels inside calendar cells |
 | `monthFormat` | `MMMM` | `MMMM` | Format for month headers |
@@ -604,5 +604,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.8.0
+v13.9.0
 ```
