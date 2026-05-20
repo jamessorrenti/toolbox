@@ -54,14 +54,30 @@ function onOpen() {
 
   const ui = SpreadsheetApp.getUi();
 
+  const showInitialMenu = getKeyBooleanOption_(
+    ss,
+    "showInitialMenu",
+    CALENDAR.showInitialMenu
+  );
+  const showEventListMenu = getKeyBooleanOption_(
+    ss,
+    "showEventListMenu",
+    CALENDAR.showEventListMenu
+  );
   const showKeyConfiguratorMenuItems = getKeyBooleanOption_(
     ss,
     "showKeyConfiguratorMenuItems",
     CALENDAR.showKeyConfiguratorMenuItems
   );
 
-  const menu = ui.createMenu(CALENDAR.menuName)
-    .addItem("New Calendar Sheet", "newCalendarSheet")
+  const menu = ui.createMenu(CALENDAR.menuName);
+
+  if (showInitialMenu) {
+    menu.addItem("Initial Setup", "initialSetup")
+      .addSeparator();
+  }
+
+  menu.addItem("New Calendar Sheet", "newCalendarSheet")
     .addItem("Replace with Calendar", "replaceWithCalendar")
     .addSeparator()
     .addItem("Refresh All Calendars", "refreshAllCalendars")
@@ -69,6 +85,11 @@ function onOpen() {
     .addSeparator()
     .addItem("Add Q1-Q4", "addQ1Q4")
     .addItem("Add Jan-Dec", "addJanDec");
+
+  if (showEventListMenu) {
+    menu.addSeparator()
+      .addItem("Create Event List", "createEventList");
+  }
 
   if (showKeyConfiguratorMenuItems) {
     menu.addSeparator()
@@ -89,8 +110,10 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.5.1",
+  version: "13.6.0",
   menuName: "Calendar Tools",
+  showInitialMenu: true,
+  showEventListMenu: true,
   showKeyConfiguratorMenuItems: true,
 
   calendarBaseName: "Calendar View",
@@ -224,6 +247,8 @@ const CALENDAR = {
 };
 
 const KEY_SETUP_OPTIONS = [
+  "showInitialMenu",
+  "showEventListMenu",
   "showKeyConfiguratorMenuItems",
   "frozenWeekdayHeader",
   "customDate",
@@ -509,6 +534,97 @@ function createKeySheet() {
   ss.toast("Key sheet created.", CALENDAR.menuName, 4);
 }
 
+// One-shot first-time setup: ensures both the Event List tab and the Key tab
+// exist, then runs the Key Configurator so Type/Category/Status get
+// validation dropdowns and Category-based row colors. Safe to re-run; existing
+// tabs are left in place.
+function initialSetup() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  showWorkingModal("Running initial setup...");
+
+  const eventsCreated = !ss.getSheetByName(CALENDAR.defaultDataSheetName);
+  const eventsSheet = ensureEventsSheet_(ss);
+
+  const keyCreated = !ss.getSheetByName(CALENDAR.keySheetName);
+  let keySheet = ss.getSheetByName(CALENDAR.keySheetName);
+  if (!keySheet) {
+    keySheet = ss.insertSheet(CALENDAR.keySheetName);
+    buildKeySheet_(keySheet);
+  }
+
+  try {
+    runKeyConfigurator();
+  } catch (err) {
+    Logger.log("Key configurator skipped during initial setup: " + err.message);
+  }
+
+  ss.setActiveSheet(eventsSheet);
+
+  const parts = [];
+  if (eventsCreated) parts.push('created "' + CALENDAR.defaultDataSheetName + '"');
+  if (keyCreated) parts.push('created "' + CALENDAR.keySheetName + '"');
+  parts.push("ran key configurator");
+  ss.toast("Initial setup: " + parts.join(", ") + ".", CALENDAR.menuName, 6);
+}
+
+function createEventList() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const existed = !!ss.getSheetByName(CALENDAR.defaultDataSheetName);
+  const sheet = ensureEventsSheet_(ss);
+  ss.setActiveSheet(sheet);
+  ss.toast(
+    existed
+      ? '"' + CALENDAR.defaultDataSheetName + '" tab already exists.'
+      : '"' + CALENDAR.defaultDataSheetName + '" tab created.',
+    CALENDAR.menuName,
+    4
+  );
+}
+
+function ensureEventsSheet_(ss) {
+  const existing = ss.getSheetByName(CALENDAR.defaultDataSheetName);
+  if (existing) return existing;
+
+  const sheet = ss.insertSheet(CALENDAR.defaultDataSheetName);
+  buildEventsSheet_(sheet);
+  return sheet;
+}
+
+function buildEventsSheet_(sheet) {
+  const headers = ["Title", "Date", "Category", "Type", "Status"];
+  const fontFamily = CALENDAR.setup.fontFamily || "Inter";
+
+  sheet.clear({ contentsOnly: false });
+  sheet.setHiddenGridlines(false);
+
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sheet.getRange(1, 1, 1, headers.length)
+    .setBackground(CALENDAR.colors.titleBackground)
+    .setFontColor(CALENDAR.colors.titleFontColor)
+    .setFontWeight("bold")
+    .setFontFamily(fontFamily)
+    .setHorizontalAlignment("left")
+    .setVerticalAlignment("middle");
+
+  sheet.setFrozenRows(1);
+
+  sheet.setColumnWidth(1, 240);
+  sheet.setColumnWidth(2, 110);
+  sheet.setColumnWidth(3, 140);
+  sheet.setColumnWidth(4, 120);
+  sheet.setColumnWidth(5, 120);
+
+  const maxRows = sheet.getMaxRows();
+  if (maxRows > 1) {
+    sheet.getRange(2, 2, maxRows - 1, 1).setNumberFormat("m/d/yyyy");
+    sheet.getRange(2, 1, maxRows - 1, headers.length)
+      .setFontFamily(fontFamily)
+      .setVerticalAlignment("middle");
+  }
+
+  sheet.setRowHeight(1, 30);
+}
+
 
 function buildKeySheet_(sheet) {
   sheet.clear({ contentsOnly: false });
@@ -553,6 +669,8 @@ function buildKeySheet_(sheet) {
 
   applyKeySheetFormatting_(sheet, maxRows);
 
+  setCheckboxIfOption_(sheet, "showInitialMenu");
+  setCheckboxIfOption_(sheet, "showEventListMenu");
   setCheckboxIfOption_(sheet, "showKeyConfiguratorMenuItems");
   setCheckboxIfOption_(sheet, "frozenWeekdayHeader");
   setCheckboxIfOption_(sheet, "customAdditionalLabels");

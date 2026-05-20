@@ -50,17 +50,38 @@ This script is designed as a **bound Apps Script**, meaning it runs inside the s
 ## Setup
 
 1. Open or create a Google Sheet.
-2. Add a source data tab named `Events`.
-3. Add event headers in row 1.
-4. Add event rows starting in row 2.
-5. Go to **Extensions > Apps Script**.
-6. Create a new `.gs` file named `Calendar_View_Builder`.
-7. Paste in the contents of `Calendar_View_Builder.gs`.
-8. Save the Apps Script project.
-9. Reload the spreadsheet.
-10. Use the **Calendar Tools** menu.
+2. Go to **Extensions > Apps Script**.
+3. Create a new `.gs` file named `Calendar_View_Builder`.
+4. Paste in the contents of `Calendar_View_Builder.gs`.
+5. Save the Apps Script project.
+6. Reload the spreadsheet.
+7. Use the **Calendar Tools** menu.
 
 The first time you run a menu action, Google may ask you to authorize the script.
+
+You can either run the **Optional first-time setup** below to scaffold everything in one click, or wire up your own source tab manually.
+
+---
+
+## Optional first-time setup
+
+`Calendar Tools > Initial Setup` is a one-click bootstrapper for a brand-new spreadsheet:
+
+1. Creates an event list tab (named `Tactics List` by default — controlled by `APP_CONFIG.dataSheetName` in the script) with these frozen header columns:
+
+   | Title | Date | Category | Type | Status |
+   |---|---|---|---|---|
+
+2. Creates the `Key` tab with default Type icons, Category colors, Status icons, setup options, and appearance colors.
+3. Runs the Key Configurator so:
+   - `Type`, `Category`, and `Status` columns on the event list get dropdown validation sourced from the matching Key columns.
+   - Rows in the event list get colored by `Category` based on the colors defined in the Key tab.
+
+It is safe to re-run. Existing tabs are left in place; only missing tabs are created.
+
+**Using a pre-existing event list?** If you already have a sheet of events (under any tab name and any column layout) you do **not** need Initial Setup. Just point your calendar tab's `Source Data` dropdown (`G1`) at your existing tab, and make sure your date column matches `customDate` (default `Date`) and your title column matches `customTitle` (default `Title`). Both can be overridden from the `Key` tab. See [Source sheet format](#source-sheet-format) for the optional columns the script recognizes.
+
+You can hide or show the **Initial Setup**, **Create Event List**, and Key Configurator menu items from the `Key` tab — see [Menu visibility toggles](#menu-visibility-toggles).
 
 ---
 
@@ -133,17 +154,32 @@ Date ranges are expanded so the event appears on each date in the range.
 
 After reloading the spreadsheet, the script adds a custom menu called **Calendar Tools**.
 
-| Action | Description |
-|---|---|
-| New Calendar Sheet | Creates a new calendar tab |
-| Replace with Calendar | Replaces the active tab with a calendar view |
-| Refresh All Calendars | Rebuilds all calendar tabs |
-| Open Selected | Opens a modal for the selected calendar day |
-| Add Q1-Q4 | Creates one tab for each quarter |
-| Add Jan-Dec | Creates one tab for each month |
-| Create Key (and customize) | Creates the Key tab if it does not exist |
+| Action | Description | Controlled by |
+|---|---|---|
+| Initial Setup | One-shot bootstrap: creates the event list + Key tabs and runs the Key Configurator | `showInitialMenu` |
+| New Calendar Sheet | Creates a new calendar tab named `Calendar View` | — |
+| Replace with Calendar | Replaces the active tab with a calendar view | — |
+| Refresh All Calendars | Rebuilds all calendar tabs | — |
+| Open Selected | Opens a modal for the selected calendar day | — |
+| Add Q1-Q4 | Creates one tab for each quarter | — |
+| Add Jan-Dec | Creates one tab for each month | — |
+| Create Event List | Creates an event list tab with the default headers, if one does not exist | `showEventListMenu` |
+| Run key configurator | Applies both validation and Category colors to the event list | `showKeyConfiguratorMenuItems` |
+| Set key-based validation | Applies just the validation step | `showKeyConfiguratorMenuItems` |
+| Set key-based colors | Applies just the conditional formatting step | `showKeyConfiguratorMenuItems` |
+| Create Key (and customize) | Creates the Key tab if it does not exist | shown only when `Key` is missing |
 
-Additional Key Configurator actions can be shown or hidden from the `Key` tab.
+### Menu visibility toggles
+
+Three of the menu sections can be hidden from the `Key` tab. They all default to `TRUE` and live in the **Additional Setup** block.
+
+| Option | Default | Controls |
+|---|---|---|
+| `showInitialMenu` | `TRUE` | **Initial Setup** |
+| `showEventListMenu` | `TRUE` | **Create Event List** |
+| `showKeyConfiguratorMenuItems` | `TRUE` | **Run key configurator**, **Set key-based validation**, **Set key-based colors** |
+
+Reload the spreadsheet after flipping a toggle for the menu to re-render.
 
 ---
 
@@ -249,7 +285,9 @@ Setup options are generated from the script defaults. The `Key` tab can override
 
 | Option | Default | Description |
 |---|---|---|
-| `showKeyConfiguratorMenuItems` | `TRUE` | Show extra Key Configurator menu items |
+| `showInitialMenu` | `TRUE` | Show the **Initial Setup** menu item |
+| `showEventListMenu` | `TRUE` | Show the **Create Event List** menu item |
+| `showKeyConfiguratorMenuItems` | `TRUE` | Show the three Key Configurator menu items |
 | `frozenWeekdayHeader` | `TRUE` | Show a frozen weekday header row |
 | `customDate` | `Date` | Source column used for event dates |
 | `customTitle` | `Title` | Source column used for event titles |
@@ -536,5 +574,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.5.1
+v13.6.0
 ```

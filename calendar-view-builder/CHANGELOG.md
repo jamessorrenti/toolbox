@@ -5,6 +5,27 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.6.0
+
+### Added
+
+- **Initial Setup** menu item. One-shot bootstrap for a brand-new spreadsheet:
+  - Creates an event list tab with frozen `Title`, `Date`, `Category`, `Type`, `Status` headers.
+  - Creates the `Key` tab if it does not exist.
+  - Runs the Key Configurator so `Type`, `Category`, and `Status` get dropdown validation and rows get colored by `Category`.
+  - Idempotent — re-running leaves existing tabs alone.
+- **Create Event List** menu item. Creates the default event list tab if it is missing, or just navigates to it.
+- Two new boolean toggles on the `Key` tab, both default `TRUE`:
+  - `showInitialMenu` — controls visibility of **Initial Setup**.
+  - `showEventListMenu` — controls visibility of **Create Event List**.
+- README now has an **Optional first-time setup** section and a **Menu visibility toggles** subsection, plus a note that any pre-existing event list works without running Initial Setup.
+
+### Changed
+
+- The **Calendar Tools** menu order is now: *Initial Setup → calendar actions → Create Event List → Key Configurator → Create Key (and customize)*. Each toggleable section is gated by its `show*` option in the Key tab.
+
+---
+
 ## v13.5.1
 
 ### Fixed
