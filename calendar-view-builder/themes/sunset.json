@@ -1,6 +1,11 @@
 {
   "name": "Sunset",
   "description": "Warm oranges, corals, and dusky pinks. Like a desert sky at dusk.",
+  "categoryPalette": [
+    "#FED7AA",
+    "#FECDD3",
+    "#F5D0FE"
+  ],
   "colors": {
     "titleBackground": "#7C2D12",
     "titleFontColor": "#FFFFFF",

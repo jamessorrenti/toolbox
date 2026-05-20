@@ -5,6 +5,11 @@
     "fontFamily": "Courier New",
     "customAdditionalLabelsStyle": "Bold"
   },
+  "categoryPalette": [
+    "#001A05",
+    "#003F0F",
+    "#006619"
+  ],
   "colors": {
     "titleBackground": "#000000",
     "titleFontColor": "#00FF41",
