@@ -5,6 +5,49 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.13.3
+
+### Changed
+
+- `onOpen` split into a thin entry-point wrapper plus a `buildCalendarMenu()` function. Lets users with their own `onOpen` in another bound script file merge the calendar menu in by calling `buildCalendarMenu()` from their own handler, instead of having to manage a duplicate-named `onOpen`. Inline comment in `onOpen` documents the merge pattern.
+
+---
+
+## v13.13.2
+
+### Added
+
+- **`Calendar Tools → Update Key (add missing features)` menu item.** Surfaces dynamically only when the Key tab is missing setup or appearance options that the current script version knows about. Appends the missing rows at the bottom of the relevant section **without touching values you've already set** — checkboxes for booleans, default values from `KEY_INITIAL_VALUES` → `CALENDAR.setup` → `CALENDAR`, color-formatted appearance cells, dropdowns refreshed at the end.
+  - Mutually exclusive with the existing `Create Key (and customize)` item (which only shows when there is no Key tab at all). On any given workbook you see at most one of the two.
+- Helpers: `keyHasMissingFeatures_(ss)` (fast short-circuit boolean used by the menu) and `keyMissingOptions_(ss)` (returns `{ setup, appearance }` arrays).
+
+---
+
+## v13.13.1
+
+### Fixed
+
+- **Dropdowns missing from `customDate` / `customTitle` / `customType` / `customCategory` / `customStatus` / `customAdditional` cells** when the Key still pointed at a non-existent sheet (typically the script default `Events` when the actual source is named something else like `Tactics List`). `readDefaultDataSheetHeaders_` now falls back to the first source sheet referenced by any calendar tab's `G1` Source Data dropdown — same pattern that `isSourceDataSheet_` already uses for Auto-Refresh. Dropdowns appear regardless of what the Key says.
+
+---
+
+## v13.13.0
+
+### Added
+
+- **`customType`, `customCategory`, `customStatus` setup options.** Same pattern as the existing `customDate` / `customTitle`: name the source-list column that holds Type / Category / Status (defaults `"Type"` / `"Category"` / `"Status"`). All three get a Key-tab dropdown of headers from `defaultDataSheetName`, and the per-tab Theme Override band gets the same dropdown so individual calendars can map differently if needed.
+- Renderer, Auto-Refresh edit detector, and Key Configurator all consume the custom names:
+  - `indexEventsByDate` looks up the custom name first, falls back to common aliases as before.
+  - `isRelevantSourceEdit_` (Auto-Refresh) recognizes edits to the custom-named columns.
+  - **Key Configurator validation** now builds source ↔ Key column *pairs*. When `customCategory = "Theme"` (for example), the source's `Theme` column gets a dropdown sourced from the Key's `Category` column. Same mapping for `Type` and `Status`.
+  - **Key Configurator color rules** use `customCategory` as the source match header, so events get colored regardless of what the source column is named.
+
+### Notes
+
+- Existing spreadsheets get the three new defaults via the script (`"Type"` / `"Category"` / `"Status"`). If your Key tab predates this release, the rows aren't there — recreate the Key with `Create Key (and customize)` to add them, or just rely on the script defaults.
+
+---
+
 ## v13.12.2
 
 ### Fixed

@@ -49,7 +49,23 @@ function withRenderSession_(fn) {
 }
 
 // Menu
-function onOpen() {
+function onOpen(e) {
+  buildCalendarMenu();
+
+  /*
+  To merge this into another file's onOpen:
+  - comment out or remove this function
+  - add the block below to the other onOpen
+
+  try {
+    buildCalendarMenu();
+  } catch (err) {
+    console.error('buildCalendarMenu error:', err);
+  }
+  */
+}
+
+function buildCalendarMenu() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   applyKeyOverrides_(ss);
 
@@ -142,6 +158,12 @@ function onOpen() {
   if (!ss.getSheetByName(CALENDAR.keySheetName)) {
     menu.addSeparator()
       .addItem("Create Key (and customize)", "createKeySheet");
+  } else if (keyHasMissingFeatures_(ss)) {
+    // Migration helper: surfaces only when the script knows about Key options
+    // the user's Key tab doesn't have yet. Appends new rows without touching
+    // existing values.
+    menu.addSeparator()
+      .addItem("Update Key (add missing features)", "updateKey");
   }
 
   menu.addToUi();
@@ -151,7 +173,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.12.2",
+  version: "13.13.3",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -212,6 +234,9 @@ const CALENDAR = {
 
     customDate: "Date",
     customTitle: "Title",
+    customType: "Type",
+    customCategory: "Category",
+    customStatus: "Status",
   },
 
   keyDefaults: {
@@ -312,6 +337,9 @@ const KEY_SETUP_OPTIONS = [
   "frozenWeekdayHeader",
   "customDate",
   "customTitle",
+  "customType",
+  "customCategory",
+  "customStatus",
   "maxEvents",
   "customAdditional",
   "customAdditionalLabels",
@@ -630,9 +658,16 @@ function applyPerTabOverrideValidations_(sheet) {
     );
   }
 
-  // customDate / customTitle / customAdditional → source headers
+  // Source-header dropdowns for the columns that name a source field.
   const headers = readDefaultDataSheetHeaders_(sheet.getParent());
-  ["customDate", "customTitle", "customAdditional"].forEach(opt => {
+  [
+    "customDate",
+    "customTitle",
+    "customType",
+    "customCategory",
+    "customStatus",
+    "customAdditional",
+  ].forEach(opt => {
     const idx = setupOptions.indexOf(opt);
     if (idx < 0) return;
     const cell = sheet.getRange(PER_TAB_OVERRIDE.dataStartRow + idx, PER_TAB_OVERRIDE.setupValueCol);
@@ -898,6 +933,9 @@ function isRelevantSourceEdit_(range, headers) {
   const relevant = [];
   if (CALENDAR.setup.customDate) relevant.push(CALENDAR.setup.customDate);
   if (CALENDAR.setup.customTitle) relevant.push(CALENDAR.setup.customTitle);
+  if (CALENDAR.setup.customType) relevant.push(CALENDAR.setup.customType);
+  if (CALENDAR.setup.customCategory) relevant.push(CALENDAR.setup.customCategory);
+  if (CALENDAR.setup.customStatus) relevant.push(CALENDAR.setup.customStatus);
   relevant.push("Date", "Start Date", "Event Date", "Date/Time", "Date Time", "MMDD");
   relevant.push("Title", "Event Title", "Name", "Initiative", "Topic");
   relevant.push("Type", "Event Type", "Channel", "Tactic Type");
@@ -1163,6 +1201,175 @@ function createKeySheet() {
   buildKeySheet_(sheet);
   ss.setActiveSheet(sheet);
   ss.toast("Key sheet created.", CALENDAR.menuName, 4);
+}
+
+// True if the Key tab is missing any setup or appearance options that the
+// current script version knows about. Used to conditionally show the
+// "Update Key" menu item — fast short-circuit check.
+function keyHasMissingFeatures_(ss) {
+  const sheet = ss.getSheetByName(CALENDAR.keySheetName);
+  if (!sheet) return false;
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return KEY_SETUP_OPTIONS.length > 0 || KEY_APPEARANCE_OPTIONS.length > 0;
+
+  // Setup column = K (col 11). Appearance column = N (col 14).
+  let existingSetup = [];
+  let existingAppearance = [];
+  try {
+    existingSetup = sheet.getRange(2, 11, lastRow - 1, 1).getValues().map(r => String(r[0] || "").trim());
+    existingAppearance = sheet.getRange(2, 14, lastRow - 1, 1).getValues().map(r => String(r[0] || "").trim());
+  } catch (err) {
+    return false;
+  }
+
+  for (let i = 0; i < KEY_SETUP_OPTIONS.length; i++) {
+    if (existingSetup.indexOf(KEY_SETUP_OPTIONS[i]) < 0) return true;
+  }
+  for (let i = 0; i < KEY_APPEARANCE_OPTIONS.length; i++) {
+    if (existingAppearance.indexOf(KEY_APPEARANCE_OPTIONS[i]) < 0) return true;
+  }
+  return false;
+}
+
+// Returns { setup: [missingNames], appearance: [missingNames] }, preserving
+// the canonical order from KEY_SETUP_OPTIONS / KEY_APPEARANCE_OPTIONS.
+function keyMissingOptions_(ss) {
+  const out = { setup: [], appearance: [] };
+  const sheet = ss.getSheetByName(CALENDAR.keySheetName);
+  if (!sheet) {
+    out.setup = KEY_SETUP_OPTIONS.slice();
+    out.appearance = KEY_APPEARANCE_OPTIONS.slice();
+    return out;
+  }
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    out.setup = KEY_SETUP_OPTIONS.slice();
+    out.appearance = KEY_APPEARANCE_OPTIONS.slice();
+    return out;
+  }
+
+  let existingSetup = [];
+  let existingAppearance = [];
+  try {
+    existingSetup = sheet.getRange(2, 11, lastRow - 1, 1).getValues().map(r => String(r[0] || "").trim());
+    existingAppearance = sheet.getRange(2, 14, lastRow - 1, 1).getValues().map(r => String(r[0] || "").trim());
+  } catch (err) {}
+
+  out.setup = KEY_SETUP_OPTIONS.filter(o => existingSetup.indexOf(o) < 0);
+  out.appearance = KEY_APPEARANCE_OPTIONS.filter(o => existingAppearance.indexOf(o) < 0);
+  return out;
+}
+
+// Appends any newly-introduced Key setup or appearance options to the existing
+// Key tab without touching values the user has already set. Each new row uses
+// the same default-value resolution as buildKeySetupRows_ (KEY_INITIAL_VALUES
+// → CALENDAR.setup → CALENDAR), and boolean options get checkboxes.
+function updateKey() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const sheet = ss.getSheetByName(CALENDAR.keySheetName);
+  if (!sheet) {
+    ui.alert("Update Key", "No Key tab found. Use Create Key (and customize) first.", ui.ButtonSet.OK);
+    return;
+  }
+
+  const missing = keyMissingOptions_(ss);
+  if (missing.setup.length === 0 && missing.appearance.length === 0) {
+    ui.alert("Update Key", "Key already has every current option.", ui.ButtonSet.OK);
+    return;
+  }
+
+  const fontFamily = CALENDAR.setup.fontFamily || "Inter";
+  let added = { setup: 0, appearance: 0 };
+
+  // Append missing setup rows after the last existing setup row in col K.
+  if (missing.setup.length > 0) {
+    let lastSetupRow = 1;
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      const values = sheet.getRange(2, 11, lastRow - 1, 1).getValues();
+      for (let i = 0; i < values.length; i++) {
+        if (String(values[i][0] || "").trim()) lastSetupRow = i + 2;
+      }
+    }
+
+    const rows = missing.setup.map(opt => {
+      let value = "";
+      if (Object.prototype.hasOwnProperty.call(KEY_INITIAL_VALUES, opt)) {
+        value = KEY_INITIAL_VALUES[opt];
+      } else if (Object.prototype.hasOwnProperty.call(CALENDAR.setup, opt)) {
+        value = CALENDAR.setup[opt];
+      } else if (Object.prototype.hasOwnProperty.call(CALENDAR, opt)) {
+        value = CALENDAR[opt];
+      }
+      return ["", opt, serializeKeyValue_(value)];
+    });
+
+    const needRows = lastSetupRow + rows.length;
+    if (sheet.getMaxRows() < needRows) {
+      sheet.insertRowsAfter(sheet.getMaxRows(), needRows - sheet.getMaxRows());
+    }
+
+    sheet.getRange(lastSetupRow + 1, 10, rows.length, 3).setValues(rows);
+    sheet.getRange(lastSetupRow + 1, 10, rows.length, 3).setFontFamily(fontFamily);
+    added.setup = rows.length;
+
+    // Checkboxes for boolean options.
+    missing.setup.forEach((opt, i) => {
+      const row = lastSetupRow + 1 + i;
+      const looksBoolean =
+        typeof CALENDAR.setup[opt] === "boolean" ||
+        typeof CALENDAR[opt] === "boolean" ||
+        (Object.prototype.hasOwnProperty.call(KEY_INITIAL_VALUES, opt) &&
+          typeof KEY_INITIAL_VALUES[opt] === "boolean");
+      if (looksBoolean) sheet.getRange(row, 12).insertCheckboxes();
+    });
+  }
+
+  // Append missing appearance rows after the last existing appearance row in col N.
+  if (missing.appearance.length > 0) {
+    let lastAppRow = 1;
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      const values = sheet.getRange(2, 14, lastRow - 1, 1).getValues();
+      for (let i = 0; i < values.length; i++) {
+        if (String(values[i][0] || "").trim()) lastAppRow = i + 2;
+      }
+    }
+
+    const rows = missing.appearance.map(opt => {
+      const v = CALENDAR.colors[opt];
+      return [opt, v || ""];
+    });
+
+    const needRows = lastAppRow + rows.length;
+    if (sheet.getMaxRows() < needRows) {
+      sheet.insertRowsAfter(sheet.getMaxRows(), needRows - sheet.getMaxRows());
+    }
+
+    sheet.getRange(lastAppRow + 1, 14, rows.length, 2).setValues(rows);
+    sheet.getRange(lastAppRow + 1, 14, rows.length, 2).setFontFamily(fontFamily);
+    rows.forEach((row, i) => {
+      const color = String(row[1] || "").trim();
+      if (looksLikeColor_(color)) {
+        sheet.getRange(lastAppRow + 1 + i, 15)
+          .setBackground(color)
+          .setFontColor(readableTextColor_(color));
+      }
+    });
+    added.appearance = rows.length;
+  }
+
+  // Refresh validations + dropdowns for new (and existing) rows.
+  applyKeyOptionNotes_(sheet);
+  applyKeySetupValidations_(sheet);
+
+  ss.toast(
+    "Key updated: " + added.setup + " setup option(s), " +
+      added.appearance + " appearance option(s) added.",
+    CALENDAR.menuName,
+    6
+  );
 }
 
 // One-shot first-time setup: ensures both the Event List tab and the Key tab
@@ -2074,7 +2281,14 @@ function applyKeySetupValidations_(sheet) {
   // enables "Allow multiple selections" on this cell in the Data validation
   // dialog, picking multiple options writes them as comma-separated text,
   // which is exactly the format customAdditional already expects.
-  ["customDate", "customTitle", "customAdditional"].forEach(optionName => {
+  [
+    "customDate",
+    "customTitle",
+    "customType",
+    "customCategory",
+    "customStatus",
+    "customAdditional",
+  ].forEach(optionName => {
     const row = findKeyOptionRow_(sheet, optionName);
     if (!row) return;
     if (headers.length) {
@@ -2086,11 +2300,34 @@ function applyKeySetupValidations_(sheet) {
 }
 
 function readDefaultDataSheetHeaders_(ss) {
+  // First try the configured default.
   const name = CALENDAR.defaultDataSheetName;
-  if (!name) return [];
-  const sheet = ss.getSheetByName(name);
-  if (!sheet) return [];
-  return readHeaders_(sheet);
+  if (name) {
+    const sheet = ss.getSheetByName(name);
+    if (sheet) {
+      const headers = readHeaders_(sheet);
+      if (headers.length) return headers;
+    }
+  }
+
+  // Fallback: the first source sheet referenced by any calendar's G1
+  // Source Data dropdown. Handles the common case where the Key still says
+  // the script default ("Events") but the actual source tab is named
+  // something else (e.g. "Tactics List").
+  try {
+    const sheets = ss.getSheets();
+    for (let i = 0; i < sheets.length; i++) {
+      if (!isCalendarSheet(sheets[i])) continue;
+      const g1 = String(sheets[i].getRange("G1").getDisplayValue() || "").trim();
+      if (!g1) continue;
+      const target = ss.getSheetByName(g1);
+      if (!target) continue;
+      const headers = readHeaders_(target);
+      if (headers.length) return headers;
+    }
+  } catch (err) {}
+
+  return [];
 }
 
 // Reads Key categories preserving display case (readKeyConfig_ normalizes the
@@ -3607,7 +3844,12 @@ function indexEventsByDate(rows, headers, sourceMeta, keyConfig) {
     "Engagement Type",
   ]);
 
+  const customType = CALENDAR.setup.customType;
+  const customCategory = CALENDAR.setup.customCategory;
+  const customStatus = CALENDAR.setup.customStatus;
+
   const typeCol = findColumnIndex(headers, [
+    customType,
     "Type",
     "Event Type",
     "Channel",
@@ -3615,6 +3857,7 @@ function indexEventsByDate(rows, headers, sourceMeta, keyConfig) {
   ]);
 
   const categoryCol = findColumnIndex(headers, [
+    customCategory,
     "Category",
     "Event Category",
     "Theme",
@@ -3623,6 +3866,7 @@ function indexEventsByDate(rows, headers, sourceMeta, keyConfig) {
   ]);
 
   const statusCol = findColumnIndex(headers, [
+    customStatus,
     "Status",
     "Event Status",
   ]);
@@ -4504,13 +4748,14 @@ function setKeyBasedDataValidation() {
   const targetHeaderMap = buildHeaderMap_(targetHeaders);
   const keyHeaderMap = buildHeaderMap_(keyHeaders);
 
-  const headerNamesToValidate = getValidationHeaderNames_(
+  const headerPairs = getValidationHeaderPairs_(
     validationConfig,
     targetHeaders,
-    keyHeaderMap
+    keyHeaderMap,
+    targetHeaderMap
   );
 
-  if (!headerNamesToValidate.length) {
+  if (!headerPairs.length) {
     Logger.log("No matching headers found for data validation.");
     return;
   }
@@ -4522,14 +4767,12 @@ function setKeyBasedDataValidation() {
     return;
   }
 
-  headerNamesToValidate.forEach(headerName => {
-    const normalizedHeaderName = normalizeValue_(headerName);
-
-    const targetHeader = targetHeaderMap[normalizedHeaderName];
-    const keyHeader = keyHeaderMap[normalizedHeaderName];
+  headerPairs.forEach(pair => {
+    const targetHeader = targetHeaderMap[normalizeValue_(pair.source)];
+    const keyHeader = keyHeaderMap[normalizeValue_(pair.key)];
 
     if (!targetHeader || !keyHeader) {
-      Logger.log(`Skipping validation for "${headerName}" because it was not found on both sheets.`);
+      Logger.log(`Skipping validation for "${pair.source}" → "${pair.key}" — column missing on one side.`);
       return;
     }
 
@@ -4541,7 +4784,7 @@ function setKeyBasedDataValidation() {
     );
 
     if (!keyValuesRange) {
-      Logger.log(`Skipping validation for "${headerName}" because the Key column has no values.`);
+      Logger.log(`Skipping validation for "${pair.source}" — Key column "${pair.key}" has no values.`);
       return;
     }
 
@@ -4583,9 +4826,12 @@ function setKeyBasedConditionalFormatting() {
   const targetSheet = getTargetSheet_(ss, config);
   const keySheet = getRequiredSheet_(ss, config.keySheetName);
 
+  // Source-side category column may be renamed via CALENDAR.setup.customCategory.
+  // The Key tab's own Category column stays at the fixed "Category" header.
+  const targetMatchHeader = CALENDAR.setup.customCategory || colorConfig.targetMatchHeader;
   const targetMatchCol = getColumnByHeader_(
     targetSheet,
-    colorConfig.targetMatchHeader,
+    targetMatchHeader,
     config.headerRow
   );
 
@@ -4799,14 +5045,47 @@ function getColumnByHeader_(sheet, headerName, headerRow) {
   return header.column;
 }
 
-function getValidationHeaderNames_(validationConfig, targetHeaders, keyHeaderMap) {
-  if (validationConfig.headersToValidate && validationConfig.headersToValidate.length) {
-    return validationConfig.headersToValidate;
+// Returns [{source, key}] pairs naming a target column and the Key column
+// to validate it against. The two names can differ — used when the source
+// has a renamed column (e.g. customCategory = "Theme") but the Key tab's
+// section is still called "Category".
+function getValidationHeaderPairs_(validationConfig, targetHeaders, keyHeaderMap, targetHeaderMap) {
+  const pairs = [];
+  const seen = Object.create(null);
+
+  function add(sourceName, keyName) {
+    if (!sourceName || !keyName) return;
+    const k = normalizeValue_(sourceName);
+    if (seen[k]) return;
+    seen[k] = true;
+    pairs.push({ source: sourceName, key: keyName });
   }
 
-  return targetHeaders
-    .filter(targetHeader => keyHeaderMap[targetHeader.normalizedName])
-    .map(targetHeader => targetHeader.name);
+  if (validationConfig.headersToValidate && validationConfig.headersToValidate.length) {
+    validationConfig.headersToValidate.forEach(n => add(n, n));
+  } else {
+    // Auto-detect: any target header that also exists by name in the Key.
+    targetHeaders.forEach(h => {
+      if (keyHeaderMap[h.normalizedName]) add(h.name, h.name);
+    });
+  }
+
+  // Custom mappings: source column named via CALENDAR.setup.customX is
+  // validated against the Key's fixed Type / Category / Status column.
+  [
+    { setup: "customType", keyName: "Type" },
+    { setup: "customCategory", keyName: "Category" },
+    { setup: "customStatus", keyName: "Status" },
+  ].forEach(m => {
+    const sourceName = CALENDAR.setup[m.setup];
+    if (!sourceName) return;
+    if (sourceName === m.keyName) return; // already covered by auto-detect
+    if (!keyHeaderMap[normalizeValue_(m.keyName)]) return;
+    if (!targetHeaderMap[normalizeValue_(sourceName)]) return;
+    add(sourceName, m.keyName);
+  });
+
+  return pairs;
 }
 
 function getKeyValidationSourceRange_(sheet, column, startRow, useOpenEndedRange) {
