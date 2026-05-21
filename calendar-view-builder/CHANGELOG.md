@@ -5,6 +5,18 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.13.1
+
+### Fixed
+
+- **Dropdowns missing from `customDate` / `customTitle` / `customType` / `customCategory` / `customStatus` / `customAdditional` cells** when the Key still pointed at a non-existent sheet (typically the script default `Events` when the actual source is named something else like `Tactics List`). `readDefaultDataSheetHeaders_` now falls back to the first source sheet referenced by any calendar tab's `G1` Source Data dropdown — same pattern that `isSourceDataSheet_` already uses for Auto-Refresh. Dropdowns appear regardless of what the Key says.
+
+### Changed
+
+- Default `customAdditional` is now `["Chip"]` (was `["Owner"]`).
+
+---
+
 ## v13.13.0
 
 ### Added

@@ -151,7 +151,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.13.0",
+  version: "13.13.1",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -206,7 +206,7 @@ const CALENDAR = {
     maxEvents: 4,
     filterDefaultLabel: "All Events",
 
-    customAdditional: ["Owner"],
+    customAdditional: ["Chip"],
     customAdditionalLabels: true,
     customAdditionalLabelsStyle: "Bold",
 
@@ -2109,11 +2109,34 @@ function applyKeySetupValidations_(sheet) {
 }
 
 function readDefaultDataSheetHeaders_(ss) {
+  // First try the configured default.
   const name = CALENDAR.defaultDataSheetName;
-  if (!name) return [];
-  const sheet = ss.getSheetByName(name);
-  if (!sheet) return [];
-  return readHeaders_(sheet);
+  if (name) {
+    const sheet = ss.getSheetByName(name);
+    if (sheet) {
+      const headers = readHeaders_(sheet);
+      if (headers.length) return headers;
+    }
+  }
+
+  // Fallback: the first source sheet referenced by any calendar's G1
+  // Source Data dropdown. Handles the common case where the Key still says
+  // the script default ("Events") but the actual source tab is named
+  // something else (e.g. "Tactics List").
+  try {
+    const sheets = ss.getSheets();
+    for (let i = 0; i < sheets.length; i++) {
+      if (!isCalendarSheet(sheets[i])) continue;
+      const g1 = String(sheets[i].getRange("G1").getDisplayValue() || "").trim();
+      if (!g1) continue;
+      const target = ss.getSheetByName(g1);
+      if (!target) continue;
+      const headers = readHeaders_(target);
+      if (headers.length) return headers;
+    }
+  } catch (err) {}
+
+  return [];
 }
 
 // Reads Key categories preserving display case (readKeyConfig_ normalizes the

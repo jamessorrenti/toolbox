@@ -508,7 +508,7 @@ Setup options are generated from the script defaults. The `Key` tab can override
 | `customCategory` | `Category` | `Category` | Source column used for event Category (color lookup, Key Configurator color rules, validation source). Dropdown of headers. |
 | `customStatus` | `Status` | `Status` | Source column used for event Status (icon lookup, validation source). Dropdown of headers. |
 | `maxEvents` | `4` | `4` | Maximum visible events per day before showing More |
-| `customAdditional` | `Owner` | `Owner` | Additional source fields to display below event title. Dropdown of headers from `defaultDataSheetName`; accepts custom comma-separated lists. Enable **Data → Data validation → Allow multiple selections** on this cell to pick several headers from the dropdown at once. |
+| `customAdditional` | `Chip` | `Chip` | Additional source fields to display below event title. Dropdown of headers from `defaultDataSheetName`; accepts custom comma-separated lists. Enable **Data → Data validation → Allow multiple selections** on this cell to pick several headers from the dropdown at once. |
 | `customAdditionalLabels` | `TRUE` | `TRUE` | Show labels for additional fields |
 | `customAdditionalLabelsStyle` | `Bold` | `Bold` | Style applied to additional field labels |
 | `q1StartMonth` | `January` | `January` | Month used as the start of Q1. Dropdown of month names. |
@@ -792,5 +792,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.13.0
+v13.13.1
 ```
