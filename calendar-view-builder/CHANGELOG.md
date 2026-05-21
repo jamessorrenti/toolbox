@@ -5,6 +5,16 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.13.2
+
+### Added
+
+- **`Calendar Tools → Update Key (add missing features)` menu item.** Surfaces dynamically only when the Key tab is missing setup or appearance options that the current script version knows about. Appends the missing rows at the bottom of the relevant section **without touching values you've already set** — checkboxes for booleans, default values from `KEY_INITIAL_VALUES` → `CALENDAR.setup` → `CALENDAR`, color-formatted appearance cells, dropdowns refreshed at the end.
+  - Mutually exclusive with the existing `Create Key (and customize)` item (which only shows when there is no Key tab at all). On any given workbook you see at most one of the two.
+- Helpers: `keyHasMissingFeatures_(ss)` (fast short-circuit boolean used by the menu) and `keyMissingOptions_(ss)` (returns `{ setup, appearance }` arrays).
+
+---
+
 ## v13.13.1
 
 ### Fixed

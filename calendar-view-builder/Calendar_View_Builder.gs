@@ -142,6 +142,12 @@ function onOpen() {
   if (!ss.getSheetByName(CALENDAR.keySheetName)) {
     menu.addSeparator()
       .addItem("Create Key (and customize)", "createKeySheet");
+  } else if (keyHasMissingFeatures_(ss)) {
+    // Migration helper: surfaces only when the script knows about Key options
+    // the user's Key tab doesn't have yet. Appends new rows without touching
+    // existing values.
+    menu.addSeparator()
+      .addItem("Update Key (add missing features)", "updateKey");
   }
 
   menu.addToUi();
@@ -151,7 +157,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.13.1",
+  version: "13.13.2",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -1179,6 +1185,175 @@ function createKeySheet() {
   buildKeySheet_(sheet);
   ss.setActiveSheet(sheet);
   ss.toast("Key sheet created.", CALENDAR.menuName, 4);
+}
+
+// True if the Key tab is missing any setup or appearance options that the
+// current script version knows about. Used to conditionally show the
+// "Update Key" menu item — fast short-circuit check.
+function keyHasMissingFeatures_(ss) {
+  const sheet = ss.getSheetByName(CALENDAR.keySheetName);
+  if (!sheet) return false;
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return KEY_SETUP_OPTIONS.length > 0 || KEY_APPEARANCE_OPTIONS.length > 0;
+
+  // Setup column = K (col 11). Appearance column = N (col 14).
+  let existingSetup = [];
+  let existingAppearance = [];
+  try {
+    existingSetup = sheet.getRange(2, 11, lastRow - 1, 1).getValues().map(r => String(r[0] || "").trim());
+    existingAppearance = sheet.getRange(2, 14, lastRow - 1, 1).getValues().map(r => String(r[0] || "").trim());
+  } catch (err) {
+    return false;
+  }
+
+  for (let i = 0; i < KEY_SETUP_OPTIONS.length; i++) {
+    if (existingSetup.indexOf(KEY_SETUP_OPTIONS[i]) < 0) return true;
+  }
+  for (let i = 0; i < KEY_APPEARANCE_OPTIONS.length; i++) {
+    if (existingAppearance.indexOf(KEY_APPEARANCE_OPTIONS[i]) < 0) return true;
+  }
+  return false;
+}
+
+// Returns { setup: [missingNames], appearance: [missingNames] }, preserving
+// the canonical order from KEY_SETUP_OPTIONS / KEY_APPEARANCE_OPTIONS.
+function keyMissingOptions_(ss) {
+  const out = { setup: [], appearance: [] };
+  const sheet = ss.getSheetByName(CALENDAR.keySheetName);
+  if (!sheet) {
+    out.setup = KEY_SETUP_OPTIONS.slice();
+    out.appearance = KEY_APPEARANCE_OPTIONS.slice();
+    return out;
+  }
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    out.setup = KEY_SETUP_OPTIONS.slice();
+    out.appearance = KEY_APPEARANCE_OPTIONS.slice();
+    return out;
+  }
+
+  let existingSetup = [];
+  let existingAppearance = [];
+  try {
+    existingSetup = sheet.getRange(2, 11, lastRow - 1, 1).getValues().map(r => String(r[0] || "").trim());
+    existingAppearance = sheet.getRange(2, 14, lastRow - 1, 1).getValues().map(r => String(r[0] || "").trim());
+  } catch (err) {}
+
+  out.setup = KEY_SETUP_OPTIONS.filter(o => existingSetup.indexOf(o) < 0);
+  out.appearance = KEY_APPEARANCE_OPTIONS.filter(o => existingAppearance.indexOf(o) < 0);
+  return out;
+}
+
+// Appends any newly-introduced Key setup or appearance options to the existing
+// Key tab without touching values the user has already set. Each new row uses
+// the same default-value resolution as buildKeySetupRows_ (KEY_INITIAL_VALUES
+// → CALENDAR.setup → CALENDAR), and boolean options get checkboxes.
+function updateKey() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const sheet = ss.getSheetByName(CALENDAR.keySheetName);
+  if (!sheet) {
+    ui.alert("Update Key", "No Key tab found. Use Create Key (and customize) first.", ui.ButtonSet.OK);
+    return;
+  }
+
+  const missing = keyMissingOptions_(ss);
+  if (missing.setup.length === 0 && missing.appearance.length === 0) {
+    ui.alert("Update Key", "Key already has every current option.", ui.ButtonSet.OK);
+    return;
+  }
+
+  const fontFamily = CALENDAR.setup.fontFamily || "Inter";
+  let added = { setup: 0, appearance: 0 };
+
+  // Append missing setup rows after the last existing setup row in col K.
+  if (missing.setup.length > 0) {
+    let lastSetupRow = 1;
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      const values = sheet.getRange(2, 11, lastRow - 1, 1).getValues();
+      for (let i = 0; i < values.length; i++) {
+        if (String(values[i][0] || "").trim()) lastSetupRow = i + 2;
+      }
+    }
+
+    const rows = missing.setup.map(opt => {
+      let value = "";
+      if (Object.prototype.hasOwnProperty.call(KEY_INITIAL_VALUES, opt)) {
+        value = KEY_INITIAL_VALUES[opt];
+      } else if (Object.prototype.hasOwnProperty.call(CALENDAR.setup, opt)) {
+        value = CALENDAR.setup[opt];
+      } else if (Object.prototype.hasOwnProperty.call(CALENDAR, opt)) {
+        value = CALENDAR[opt];
+      }
+      return ["", opt, serializeKeyValue_(value)];
+    });
+
+    const needRows = lastSetupRow + rows.length;
+    if (sheet.getMaxRows() < needRows) {
+      sheet.insertRowsAfter(sheet.getMaxRows(), needRows - sheet.getMaxRows());
+    }
+
+    sheet.getRange(lastSetupRow + 1, 10, rows.length, 3).setValues(rows);
+    sheet.getRange(lastSetupRow + 1, 10, rows.length, 3).setFontFamily(fontFamily);
+    added.setup = rows.length;
+
+    // Checkboxes for boolean options.
+    missing.setup.forEach((opt, i) => {
+      const row = lastSetupRow + 1 + i;
+      const looksBoolean =
+        typeof CALENDAR.setup[opt] === "boolean" ||
+        typeof CALENDAR[opt] === "boolean" ||
+        (Object.prototype.hasOwnProperty.call(KEY_INITIAL_VALUES, opt) &&
+          typeof KEY_INITIAL_VALUES[opt] === "boolean");
+      if (looksBoolean) sheet.getRange(row, 12).insertCheckboxes();
+    });
+  }
+
+  // Append missing appearance rows after the last existing appearance row in col N.
+  if (missing.appearance.length > 0) {
+    let lastAppRow = 1;
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      const values = sheet.getRange(2, 14, lastRow - 1, 1).getValues();
+      for (let i = 0; i < values.length; i++) {
+        if (String(values[i][0] || "").trim()) lastAppRow = i + 2;
+      }
+    }
+
+    const rows = missing.appearance.map(opt => {
+      const v = CALENDAR.colors[opt];
+      return [opt, v || ""];
+    });
+
+    const needRows = lastAppRow + rows.length;
+    if (sheet.getMaxRows() < needRows) {
+      sheet.insertRowsAfter(sheet.getMaxRows(), needRows - sheet.getMaxRows());
+    }
+
+    sheet.getRange(lastAppRow + 1, 14, rows.length, 2).setValues(rows);
+    sheet.getRange(lastAppRow + 1, 14, rows.length, 2).setFontFamily(fontFamily);
+    rows.forEach((row, i) => {
+      const color = String(row[1] || "").trim();
+      if (looksLikeColor_(color)) {
+        sheet.getRange(lastAppRow + 1 + i, 15)
+          .setBackground(color)
+          .setFontColor(readableTextColor_(color));
+      }
+    });
+    added.appearance = rows.length;
+  }
+
+  // Refresh validations + dropdowns for new (and existing) rows.
+  applyKeyOptionNotes_(sheet);
+  applyKeySetupValidations_(sheet);
+
+  ss.toast(
+    "Key updated: " + added.setup + " setup option(s), " +
+      added.appearance + " appearance option(s) added.",
+    CALENDAR.menuName,
+    6
+  );
 }
 
 // One-shot first-time setup: ensures both the Event List tab and the Key tab

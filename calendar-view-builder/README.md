@@ -186,6 +186,7 @@ After reloading the spreadsheet, the script adds a custom menu called **Calendar
 | Set key-based validation | Applies just the validation step | `showKeyConfiguratorMenuItems` |
 | Set key-based colors | Applies just the conditional formatting step | `showKeyConfiguratorMenuItems` |
 | Create Key (and customize) | Creates the Key tab if it does not exist | shown only when `Key` is missing |
+| Update Key (add missing features) | Appends any newly-introduced Key options to an existing Key tab without overwriting current values | shown only when the Key tab is missing options the current script version knows about |
 
 ### Menu visibility toggles
 
@@ -792,5 +793,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.13.1
+v13.13.2
 ```
