@@ -503,7 +503,10 @@ Setup options are generated from the script defaults. The `Key` tab can override
 | `autoRefresh` | `TRUE` | `TRUE` | When `TRUE`, calendars auto-refresh on tab switch after source edits. See [Auto-Refresh](#auto-refresh). |
 | `frozenWeekdayHeader` | `TRUE` | `FALSE` | Show a frozen weekday header row |
 | `customDate` | `Date` | `Date` | Source column used for event dates. Dropdown of headers from `defaultDataSheetName`; accepts custom names. |
-| `customTitle` | `Title` | `Title` | Source column used for event titles. Dropdown of headers from `defaultDataSheetName`; accepts custom names. |
+| `customTitle` | `Title` | `Title` | Source column used for event titles. Dropdown of headers. |
+| `customType` | `Type` | `Type` | Source column used for event Type (icon lookup, validation source). Dropdown of headers. |
+| `customCategory` | `Category` | `Category` | Source column used for event Category (color lookup, Key Configurator color rules, validation source). Dropdown of headers. |
+| `customStatus` | `Status` | `Status` | Source column used for event Status (icon lookup, validation source). Dropdown of headers. |
 | `maxEvents` | `4` | `4` | Maximum visible events per day before showing More |
 | `customAdditional` | `Owner` | `Owner` | Additional source fields to display below event title. Dropdown of headers from `defaultDataSheetName`; accepts custom comma-separated lists. Enable **Data → Data validation → Allow multiple selections** on this cell to pick several headers from the dropdown at once. |
 | `customAdditionalLabels` | `TRUE` | `TRUE` | Show labels for additional fields |
@@ -789,5 +792,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.12.2
+v13.13.0
 ```

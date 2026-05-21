@@ -151,7 +151,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.12.2",
+  version: "13.13.0",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -212,6 +212,9 @@ const CALENDAR = {
 
     customDate: "Date",
     customTitle: "Title",
+    customType: "Type",
+    customCategory: "Category",
+    customStatus: "Status",
   },
 
   keyDefaults: {
@@ -312,6 +315,9 @@ const KEY_SETUP_OPTIONS = [
   "frozenWeekdayHeader",
   "customDate",
   "customTitle",
+  "customType",
+  "customCategory",
+  "customStatus",
   "maxEvents",
   "customAdditional",
   "customAdditionalLabels",
@@ -630,9 +636,16 @@ function applyPerTabOverrideValidations_(sheet) {
     );
   }
 
-  // customDate / customTitle / customAdditional → source headers
+  // Source-header dropdowns for the columns that name a source field.
   const headers = readDefaultDataSheetHeaders_(sheet.getParent());
-  ["customDate", "customTitle", "customAdditional"].forEach(opt => {
+  [
+    "customDate",
+    "customTitle",
+    "customType",
+    "customCategory",
+    "customStatus",
+    "customAdditional",
+  ].forEach(opt => {
     const idx = setupOptions.indexOf(opt);
     if (idx < 0) return;
     const cell = sheet.getRange(PER_TAB_OVERRIDE.dataStartRow + idx, PER_TAB_OVERRIDE.setupValueCol);
@@ -898,6 +911,9 @@ function isRelevantSourceEdit_(range, headers) {
   const relevant = [];
   if (CALENDAR.setup.customDate) relevant.push(CALENDAR.setup.customDate);
   if (CALENDAR.setup.customTitle) relevant.push(CALENDAR.setup.customTitle);
+  if (CALENDAR.setup.customType) relevant.push(CALENDAR.setup.customType);
+  if (CALENDAR.setup.customCategory) relevant.push(CALENDAR.setup.customCategory);
+  if (CALENDAR.setup.customStatus) relevant.push(CALENDAR.setup.customStatus);
   relevant.push("Date", "Start Date", "Event Date", "Date/Time", "Date Time", "MMDD");
   relevant.push("Title", "Event Title", "Name", "Initiative", "Topic");
   relevant.push("Type", "Event Type", "Channel", "Tactic Type");
@@ -2074,7 +2090,14 @@ function applyKeySetupValidations_(sheet) {
   // enables "Allow multiple selections" on this cell in the Data validation
   // dialog, picking multiple options writes them as comma-separated text,
   // which is exactly the format customAdditional already expects.
-  ["customDate", "customTitle", "customAdditional"].forEach(optionName => {
+  [
+    "customDate",
+    "customTitle",
+    "customType",
+    "customCategory",
+    "customStatus",
+    "customAdditional",
+  ].forEach(optionName => {
     const row = findKeyOptionRow_(sheet, optionName);
     if (!row) return;
     if (headers.length) {
@@ -3607,7 +3630,12 @@ function indexEventsByDate(rows, headers, sourceMeta, keyConfig) {
     "Engagement Type",
   ]);
 
+  const customType = CALENDAR.setup.customType;
+  const customCategory = CALENDAR.setup.customCategory;
+  const customStatus = CALENDAR.setup.customStatus;
+
   const typeCol = findColumnIndex(headers, [
+    customType,
     "Type",
     "Event Type",
     "Channel",
@@ -3615,6 +3643,7 @@ function indexEventsByDate(rows, headers, sourceMeta, keyConfig) {
   ]);
 
   const categoryCol = findColumnIndex(headers, [
+    customCategory,
     "Category",
     "Event Category",
     "Theme",
@@ -3623,6 +3652,7 @@ function indexEventsByDate(rows, headers, sourceMeta, keyConfig) {
   ]);
 
   const statusCol = findColumnIndex(headers, [
+    customStatus,
     "Status",
     "Event Status",
   ]);
@@ -4504,13 +4534,14 @@ function setKeyBasedDataValidation() {
   const targetHeaderMap = buildHeaderMap_(targetHeaders);
   const keyHeaderMap = buildHeaderMap_(keyHeaders);
 
-  const headerNamesToValidate = getValidationHeaderNames_(
+  const headerPairs = getValidationHeaderPairs_(
     validationConfig,
     targetHeaders,
-    keyHeaderMap
+    keyHeaderMap,
+    targetHeaderMap
   );
 
-  if (!headerNamesToValidate.length) {
+  if (!headerPairs.length) {
     Logger.log("No matching headers found for data validation.");
     return;
   }
@@ -4522,14 +4553,12 @@ function setKeyBasedDataValidation() {
     return;
   }
 
-  headerNamesToValidate.forEach(headerName => {
-    const normalizedHeaderName = normalizeValue_(headerName);
-
-    const targetHeader = targetHeaderMap[normalizedHeaderName];
-    const keyHeader = keyHeaderMap[normalizedHeaderName];
+  headerPairs.forEach(pair => {
+    const targetHeader = targetHeaderMap[normalizeValue_(pair.source)];
+    const keyHeader = keyHeaderMap[normalizeValue_(pair.key)];
 
     if (!targetHeader || !keyHeader) {
-      Logger.log(`Skipping validation for "${headerName}" because it was not found on both sheets.`);
+      Logger.log(`Skipping validation for "${pair.source}" → "${pair.key}" — column missing on one side.`);
       return;
     }
 
@@ -4541,7 +4570,7 @@ function setKeyBasedDataValidation() {
     );
 
     if (!keyValuesRange) {
-      Logger.log(`Skipping validation for "${headerName}" because the Key column has no values.`);
+      Logger.log(`Skipping validation for "${pair.source}" — Key column "${pair.key}" has no values.`);
       return;
     }
 
@@ -4583,9 +4612,12 @@ function setKeyBasedConditionalFormatting() {
   const targetSheet = getTargetSheet_(ss, config);
   const keySheet = getRequiredSheet_(ss, config.keySheetName);
 
+  // Source-side category column may be renamed via CALENDAR.setup.customCategory.
+  // The Key tab's own Category column stays at the fixed "Category" header.
+  const targetMatchHeader = CALENDAR.setup.customCategory || colorConfig.targetMatchHeader;
   const targetMatchCol = getColumnByHeader_(
     targetSheet,
-    colorConfig.targetMatchHeader,
+    targetMatchHeader,
     config.headerRow
   );
 
@@ -4799,14 +4831,47 @@ function getColumnByHeader_(sheet, headerName, headerRow) {
   return header.column;
 }
 
-function getValidationHeaderNames_(validationConfig, targetHeaders, keyHeaderMap) {
-  if (validationConfig.headersToValidate && validationConfig.headersToValidate.length) {
-    return validationConfig.headersToValidate;
+// Returns [{source, key}] pairs naming a target column and the Key column
+// to validate it against. The two names can differ — used when the source
+// has a renamed column (e.g. customCategory = "Theme") but the Key tab's
+// section is still called "Category".
+function getValidationHeaderPairs_(validationConfig, targetHeaders, keyHeaderMap, targetHeaderMap) {
+  const pairs = [];
+  const seen = Object.create(null);
+
+  function add(sourceName, keyName) {
+    if (!sourceName || !keyName) return;
+    const k = normalizeValue_(sourceName);
+    if (seen[k]) return;
+    seen[k] = true;
+    pairs.push({ source: sourceName, key: keyName });
   }
 
-  return targetHeaders
-    .filter(targetHeader => keyHeaderMap[targetHeader.normalizedName])
-    .map(targetHeader => targetHeader.name);
+  if (validationConfig.headersToValidate && validationConfig.headersToValidate.length) {
+    validationConfig.headersToValidate.forEach(n => add(n, n));
+  } else {
+    // Auto-detect: any target header that also exists by name in the Key.
+    targetHeaders.forEach(h => {
+      if (keyHeaderMap[h.normalizedName]) add(h.name, h.name);
+    });
+  }
+
+  // Custom mappings: source column named via CALENDAR.setup.customX is
+  // validated against the Key's fixed Type / Category / Status column.
+  [
+    { setup: "customType", keyName: "Type" },
+    { setup: "customCategory", keyName: "Category" },
+    { setup: "customStatus", keyName: "Status" },
+  ].forEach(m => {
+    const sourceName = CALENDAR.setup[m.setup];
+    if (!sourceName) return;
+    if (sourceName === m.keyName) return; // already covered by auto-detect
+    if (!keyHeaderMap[normalizeValue_(m.keyName)]) return;
+    if (!targetHeaderMap[normalizeValue_(sourceName)]) return;
+    add(sourceName, m.keyName);
+  });
+
+  return pairs;
 }
 
 function getKeyValidationSourceRange_(sheet, column, startRow, useOpenEndedRange) {

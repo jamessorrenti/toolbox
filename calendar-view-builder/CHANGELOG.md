@@ -5,6 +5,23 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.13.0
+
+### Added
+
+- **`customType`, `customCategory`, `customStatus` setup options.** Same pattern as the existing `customDate` / `customTitle`: name the source-list column that holds Type / Category / Status (defaults `"Type"` / `"Category"` / `"Status"`). All three get a Key-tab dropdown of headers from `defaultDataSheetName`, and the per-tab Theme Override band gets the same dropdown so individual calendars can map differently if needed.
+- Renderer, Auto-Refresh edit detector, and Key Configurator all consume the custom names:
+  - `indexEventsByDate` looks up the custom name first, falls back to common aliases as before.
+  - `isRelevantSourceEdit_` (Auto-Refresh) recognizes edits to the custom-named columns.
+  - **Key Configurator validation** now builds source ↔ Key column *pairs*. When `customCategory = "Theme"` (for example), the source's `Theme` column gets a dropdown sourced from the Key's `Category` column. Same mapping for `Type` and `Status`.
+  - **Key Configurator color rules** use `customCategory` as the source match header, so events get colored regardless of what the source column is named.
+
+### Notes
+
+- Existing spreadsheets get the three new defaults via the script (`"Type"` / `"Category"` / `"Status"`). If your Key tab predates this release, the rows aren't there — recreate the Key with `Create Key (and customize)` to add them, or just rely on the script defaults.
+
+---
+
 ## v13.12.2
 
 ### Fixed
