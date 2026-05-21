@@ -49,7 +49,23 @@ function withRenderSession_(fn) {
 }
 
 // Menu
-function onOpen() {
+function onOpen(e) {
+  buildCalendarMenu();
+
+  /*
+  To merge this into another file's onOpen:
+  - comment out or remove this function
+  - add the block below to the other onOpen
+
+  try {
+    buildCalendarMenu();
+  } catch (err) {
+    console.error('buildCalendarMenu error:', err);
+  }
+  */
+}
+
+function buildCalendarMenu() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   applyKeyOverrides_(ss);
 
@@ -157,7 +173,7 @@ function onOpen() {
 
 // Customization
 const CALENDAR = {
-  version: "13.13.2",
+  version: "13.13.3",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,

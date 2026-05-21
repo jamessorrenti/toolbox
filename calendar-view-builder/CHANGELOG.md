@@ -5,6 +5,14 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.13.3
+
+### Changed
+
+- `onOpen` split into a thin entry-point wrapper plus a `buildCalendarMenu()` function. Lets users with their own `onOpen` in another bound script file merge the calendar menu in by calling `buildCalendarMenu()` from their own handler, instead of having to manage a duplicate-named `onOpen`. Inline comment in `onOpen` documents the merge pattern.
+
+---
+
 ## v13.13.2
 
 ### Added
