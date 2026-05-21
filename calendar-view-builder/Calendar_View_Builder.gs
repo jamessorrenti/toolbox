@@ -206,7 +206,7 @@ const CALENDAR = {
     maxEvents: 4,
     filterDefaultLabel: "All Events",
 
-    customAdditional: ["Chip"],
+    customAdditional: ["Owner"],
     customAdditionalLabels: true,
     customAdditionalLabelsStyle: "Bold",
 
