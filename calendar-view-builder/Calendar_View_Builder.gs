@@ -103,11 +103,6 @@ function buildCalendarMenu() {
     "showImportThemeMenu",
     CALENDAR.showImportThemeMenu
   ) || hasAnyPerTabOverride_(ss);
-  const showGroupEventsByDateMenu = getKeyBooleanOption_(
-    ss,
-    "showGroupEventsByDateMenu",
-    CALENDAR.showGroupEventsByDateMenu
-  );
   const showKeyConfiguratorMenuItems = getKeyBooleanOption_(
     ss,
     "showKeyConfiguratorMenuItems",
@@ -135,18 +130,13 @@ function buildCalendarMenu() {
       .addItem("Create Event List", "createEventList");
   }
 
-  if (showGroupEventsByDateMenu) {
-    if (!showEventListMenu) menu.addSeparator();
-    menu.addItem("Group Events by Date", "groupEventsByDate");
-  }
-
   if (showSetKeyFromEventListMenu) {
-    if (!showEventListMenu && !showGroupEventsByDateMenu) menu.addSeparator();
+    if (!showEventListMenu) menu.addSeparator();
     menu.addItem("Set Key From Event List", "setKeyFromEventList");
   }
 
   if (showImportThemeMenu) {
-    if (!showEventListMenu && !showGroupEventsByDateMenu && !showSetKeyFromEventListMenu) menu.addSeparator();
+    if (!showEventListMenu && !showSetKeyFromEventListMenu) menu.addSeparator();
     menu.addItem("Import Theme", "importTheme");
 
     // "Add Theme Override" appears when the active tab is a calendar without
@@ -183,13 +173,12 @@ function buildCalendarMenu() {
 
 // Customization
 const CALENDAR = {
-  version: "13.14.1",
+  version: "13.14.2",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
   showSetKeyFromEventListMenu: true,
   showImportThemeMenu: true,
-  showGroupEventsByDateMenu: true,
   showKeyConfiguratorMenuItems: true,
 
   // Auto-Refresh: when TRUE, source-list edits invalidate calendars and the
@@ -348,7 +337,6 @@ const KEY_SETUP_OPTIONS = [
   "showEventListMenu",
   "showSetKeyFromEventListMenu",
   "showImportThemeMenu",
-  "showGroupEventsByDateMenu",
   "showKeyConfiguratorMenuItems",
   "autoRefresh",
   "frozenWeekdayHeader",
@@ -378,7 +366,6 @@ const KEY_INITIAL_VALUES = {
   showEventListMenu: false,
   showSetKeyFromEventListMenu: false,
   showImportThemeMenu: false,
-  showGroupEventsByDateMenu: false,
   showKeyConfiguratorMenuItems: false,
   // autoRefresh defaults TRUE in the Key (different from the show* toggles).
   // It controls whether source-list edits trigger lazy calendar refresh on
@@ -462,7 +449,6 @@ const PER_TAB_OVERRIDE_EXCLUDED_OPTIONS = [
   "showEventListMenu",
   "showSetKeyFromEventListMenu",
   "showImportThemeMenu",
-  "showGroupEventsByDateMenu",
   "showKeyConfiguratorMenuItems",
 ];
 
@@ -2184,278 +2170,6 @@ function buildEventsSheet_(sheet) {
   sheet.setRowHeight(1, 30);
 }
 
-// Sort an event-list tab by its date column, then group rows by Year and
-// Month using Sheets row groups. Collapses groups that are entirely in the
-// past so the user lands on the current month. If the active tab isn't an
-// event list, prompts the user to pick one.
-function groupEventsByDate() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const ui = SpreadsheetApp.getUi();
-  applyKeyOverrides_(ss);
-
-  let sheet = ss.getActiveSheet();
-  if (!isSourceDataSheet_(sheet)) {
-    sheet = pickEventListSheet_(ui, ss);
-    if (!sheet) return;
-  }
-
-  const headers = readHeaders_(sheet);
-  if (!headers.length) {
-    ui.alert("Group Events by Date", 'No headers found in row 1 of "' + sheet.getName() + '".', ui.ButtonSet.OK);
-    return;
-  }
-
-  const dateColIndex = findColumnIndex(headers, [
-    CALENDAR.setup.customDate,
-    "Date", "Start Date", "Event Date", "Date/Time", "Date Time", "MMDD",
-    "Current MMDD", "Original MMDD",
-  ]);
-  if (dateColIndex < 0) {
-    ui.alert("Group Events by Date", 'No date column found on "' + sheet.getName() + '".', ui.ButtonSet.OK);
-    return;
-  }
-
-  const lastRow = sheet.getLastRow();
-  const lastCol = sheet.getLastColumn();
-  if (lastRow < 2) {
-    ui.alert("Group Events by Date", "No event rows to group.", ui.ButtonSet.OK);
-    return;
-  }
-
-  // Clear any existing row groups in the data area before re-grouping.
-  const clearRes = clearRowGroupsViaApi_(sheet);
-  if (!clearRes.ok) {
-    ui.alert(
-      "Group Events by Date",
-      "Couldn't clear existing row groups via the Sheets API.\n\n" + clearRes.error,
-      ui.ButtonSet.OK
-    );
-    return;
-  }
-
-  // Sort by the date column ascending. The whole row sorts together so other
-  // columns stay aligned.
-  sheet.getRange(2, 1, lastRow - 1, lastCol)
-    .sort({ column: dateColIndex + 1, ascending: true });
-
-  // Re-read date values post-sort and normalize to {year, month} pairs.
-  const rawDates = sheet.getRange(2, dateColIndex + 1, lastRow - 1, 1).getValues();
-  const yearMonths = rawDates.map(r => {
-    const v = r[0];
-    if (v === null || v === undefined || v === "") return null;
-    const parsed = parseDateValue(v);
-    if (!parsed.length) return null;
-    const d = parsed[0];
-    return { year: d.getFullYear(), month: d.getMonth() };
-  });
-
-  // Walk the sorted rows to find contiguous year + month blocks. Rows with
-  // unparseable / blank dates break any open block and are left ungrouped.
-  const yearBlocks = [];
-  const monthBlocks = [];
-  let curYear = null, curMonth = null;
-  let yearStart = -1, monthStart = -1;
-
-  function closeBlocks(endSheetRow) {
-    if (yearStart >= 0) yearBlocks.push({ year: curYear, startRow: yearStart, endRow: endSheetRow });
-    if (monthStart >= 0) monthBlocks.push({ year: curYear, month: curMonth, startRow: monthStart, endRow: endSheetRow });
-    yearStart = -1;
-    monthStart = -1;
-  }
-
-  for (let i = 0; i < yearMonths.length; i++) {
-    const ym = yearMonths[i];
-    const sheetRow = i + 2;
-    if (!ym) { closeBlocks(sheetRow - 1); curYear = null; curMonth = null; continue; }
-    if (curYear === null || ym.year !== curYear) {
-      closeBlocks(sheetRow - 1);
-      curYear = ym.year; curMonth = ym.month;
-      yearStart = sheetRow; monthStart = sheetRow;
-    } else if (ym.month !== curMonth) {
-      if (monthStart >= 0) monthBlocks.push({ year: curYear, month: curMonth, startRow: monthStart, endRow: sheetRow - 1 });
-      curMonth = ym.month; monthStart = sheetRow;
-    }
-  }
-  closeBlocks(yearMonths.length + 1);
-
-  // Apply year groups first (depth 1), then month groups (depth 2, inside the
-  // year groups). We use the Sheets API v4 addDimensionGroup directly because
-  // Apps Script's Range.shiftRowGroupDepth() merges adjacent same-depth ranges
-  // into a single group — so three adjacent months would collapse into one
-  // big group instead of staying distinct.
-  const yearRanges = yearBlocks
-    .filter(b => b.endRow >= b.startRow)
-    .map(b => ({ startRow: b.startRow, endRow: b.endRow }));
-  const monthRanges = monthBlocks
-    .filter(b => b.endRow >= b.startRow)
-    .map(b => ({ startRow: b.startRow, endRow: b.endRow }));
-
-  const yearRes = addRowGroupsViaApi_(sheet, yearRanges);
-  if (!yearRes.ok) {
-    ui.alert(
-      "Group Events by Date",
-      "Couldn't create year groups via the Sheets API.\n\n" + yearRes.error,
-      ui.ButtonSet.OK
-    );
-    return;
-  }
-  const monthRes = addRowGroupsViaApi_(sheet, monthRanges);
-  if (!monthRes.ok) {
-    ui.alert(
-      "Group Events by Date",
-      "Couldn't create month groups via the Sheets API.\n\n" + monthRes.error,
-      ui.ButtonSet.OK
-    );
-    return;
-  }
-  SpreadsheetApp.flush();
-
-  // Collapse past groups. A whole past year collapses its months too, so we
-  // only handle past months of the *current* year separately.
-  const now = new Date();
-  const thisYear = now.getFullYear();
-  const thisMonth = now.getMonth();
-
-  yearBlocks.forEach(b => {
-    if (b.year < thisYear) {
-      try {
-        const g = sheet.getRowGroup(b.startRow, 1);
-        if (g) g.collapse();
-      } catch (err) {}
-    }
-  });
-
-  monthBlocks.forEach(b => {
-    if (b.year === thisYear && b.month < thisMonth) {
-      try {
-        const g = sheet.getRowGroup(b.startRow, 2);
-        if (g) g.collapse();
-      } catch (err) {}
-    }
-  });
-
-  ss.setActiveSheet(sheet);
-  ss.toast(
-    'Grouped "' + sheet.getName() + '": ' + monthBlocks.length +
-      ' month(s) across ' + yearBlocks.length + ' year(s). Past groups collapsed.',
-    CALENDAR.menuName,
-    6
-  );
-}
-
-// Static scope hint for Apps Script's automatic OAuth scope detection. The
-// Sheets API v4 calls below (via UrlFetchApp) require the broader
-// `https://www.googleapis.com/auth/spreadsheets` scope rather than the
-// default `spreadsheets.currentonly`. Apps Script grants the broader scope
-// when it sees a `SpreadsheetApp.openById` reference anywhere in source.
-// This function is never invoked.
-function __forceSpreadsheetsScope_() {
-  if (false) {
-    SpreadsheetApp.openById("never-runs");
-  }
-}
-
-// Adds row groups to `sheet` via the Sheets API v4 batchUpdate. We use the
-// raw API (instead of Range.shiftRowGroupDepth) because Apps Script merges
-// adjacent same-depth ranges into one group, but addDimensionGroup keeps
-// them distinct. Ranges are 1-indexed inclusive (sheet rows); the API uses
-// 0-indexed half-open intervals.
-function addRowGroupsViaApi_(sheet, ranges) {
-  if (!ranges || !ranges.length) return { ok: true };
-  const ssId = sheet.getParent().getId();
-  const sheetId = sheet.getSheetId();
-  const requests = ranges.map(r => ({
-    addDimensionGroup: {
-      range: {
-        sheetId: sheetId,
-        dimension: "ROWS",
-        startIndex: r.startRow - 1,
-        endIndex: r.endRow,
-      },
-    },
-  }));
-  return sheetsBatchUpdate_(ssId, requests);
-}
-
-// Clears all existing row groups on `sheet` by reading the sheet's rowGroups
-// metadata and issuing deleteDimensionGroup requests in descending depth so
-// inner groups go first.
-function clearRowGroupsViaApi_(sheet) {
-  const ssId = sheet.getParent().getId();
-  const sheetId = sheet.getSheetId();
-
-  const metaUrl =
-    "https://sheets.googleapis.com/v4/spreadsheets/" +
-    encodeURIComponent(ssId) +
-    "?fields=" + encodeURIComponent("sheets(properties(sheetId),rowGroups)");
-
-  let resp;
-  try {
-    resp = UrlFetchApp.fetch(metaUrl, {
-      method: "get",
-      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
-      muteHttpExceptions: true,
-    });
-  } catch (err) {
-    return { ok: false, error: "metadata fetch threw: " + err.message };
-  }
-  const code = resp.getResponseCode();
-  if (code < 200 || code >= 300) {
-    return { ok: false, error: "metadata HTTP " + code + ": " + resp.getContentText() };
-  }
-
-  let meta;
-  try {
-    meta = JSON.parse(resp.getContentText());
-  } catch (err) {
-    return { ok: false, error: "metadata JSON parse failed: " + err.message };
-  }
-
-  const sheetMeta = (meta.sheets || []).find(
-    s => s && s.properties && s.properties.sheetId === sheetId
-  );
-  const rowGroups = (sheetMeta && sheetMeta.rowGroups) || [];
-  if (!rowGroups.length) return { ok: true, count: 0 };
-
-  rowGroups.sort((a, b) => (b.depth || 0) - (a.depth || 0));
-  const requests = rowGroups.map(g => ({
-    deleteDimensionGroup: {
-      range: {
-        sheetId: sheetId,
-        dimension: "ROWS",
-        startIndex: g.range.startIndex,
-        endIndex: g.range.endIndex,
-      },
-    },
-  }));
-  const res = sheetsBatchUpdate_(ssId, requests);
-  if (res.ok) res.count = rowGroups.length;
-  return res;
-}
-
-// Posts a Sheets API v4 batchUpdate. Returns {ok, error?}.
-function sheetsBatchUpdate_(ssId, requests) {
-  if (!requests || !requests.length) return { ok: true };
-  const url =
-    "https://sheets.googleapis.com/v4/spreadsheets/" +
-    encodeURIComponent(ssId) + ":batchUpdate";
-  let resp;
-  try {
-    resp = UrlFetchApp.fetch(url, {
-      method: "post",
-      contentType: "application/json",
-      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
-      payload: JSON.stringify({ requests: requests }),
-      muteHttpExceptions: true,
-    });
-  } catch (err) {
-    return { ok: false, error: "batchUpdate threw: " + err.message };
-  }
-  const code = resp.getResponseCode();
-  if (code >= 200 && code < 300) return { ok: true };
-  return { ok: false, error: "batchUpdate HTTP " + code + ": " + resp.getContentText() };
-}
-
 function buildKeySheet_(sheet) {
   sheet.clear({ contentsOnly: false });
   sheet.setHiddenGridlines(true);
@@ -2503,7 +2217,6 @@ function buildKeySheet_(sheet) {
   setCheckboxIfOption_(sheet, "showEventListMenu");
   setCheckboxIfOption_(sheet, "showSetKeyFromEventListMenu");
   setCheckboxIfOption_(sheet, "showImportThemeMenu");
-  setCheckboxIfOption_(sheet, "showGroupEventsByDateMenu");
   setCheckboxIfOption_(sheet, "showKeyConfiguratorMenuItems");
   setCheckboxIfOption_(sheet, "autoRefresh");
   setCheckboxIfOption_(sheet, "frozenWeekdayHeader");

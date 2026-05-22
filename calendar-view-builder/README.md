@@ -179,7 +179,6 @@ After reloading the spreadsheet, the script adds a custom menu called **Calendar
 | Add Q1-Q4 | Creates one tab for each quarter | — |
 | Add Jan-Dec | Creates one tab for each month | — |
 | Create Event List | Creates an event list tab with the default headers, if one does not exist. Auto-runs the Key Configurator when the `Key` tab is present. | `showEventListMenu` |
-| Group Events by Date | Sorts an event-list tab by its date column, then groups rows by Year → Month using Sheets row groups. Collapses past groups so the current month is visible at the top. Prompts to pick a tab if the active one isn't an event list. | `showGroupEventsByDateMenu` |
 | Set Key From Event List | Walk-through that reads an existing event list and writes its Date / Title / Type / Category / Status values into the Key tab | `showSetKeyFromEventListMenu` |
 | Import Theme | Fetches a list of themes from a public repo and writes the chosen one into the Key tab — or, optionally, into the active calendar tab's [Theme Override](#theme-override-per-calendar-tab) band | `showImportThemeMenu` (also auto-shown when any tab has an override) |
 | Add Theme Override | Adds a per-tab Theme Override band to the active calendar tab, pre-populated with its currently-effective values | `showImportThemeMenu` (only when active tab is a calendar without an override) |
@@ -199,7 +198,6 @@ Four toggles in the `Key` tab's **Additional Setup** block control which menu se
 | `showEventListMenu` | `FALSE` | **Create Event List** |
 | `showSetKeyFromEventListMenu` | `FALSE` | **Set Key From Event List** |
 | `showImportThemeMenu` | `FALSE` | **Import Theme** |
-| `showGroupEventsByDateMenu` | `FALSE` | **Group Events by Date** |
 | `showKeyConfiguratorMenuItems` | `FALSE` | **Run key configurator**, **Set key-based validation**, **Set key-based colors** |
 
 Reload the spreadsheet after flipping a toggle for the menu to re-render.
@@ -502,7 +500,6 @@ Setup options are generated from the script defaults. The `Key` tab can override
 | `showEventListMenu` | `TRUE` | `FALSE` | Show the **Create Event List** menu item |
 | `showSetKeyFromEventListMenu` | `TRUE` | `FALSE` | Show the **Set Key From Event List** menu item |
 | `showImportThemeMenu` | `TRUE` | `FALSE` | Show the **Import Theme** menu item |
-| `showGroupEventsByDateMenu` | `TRUE` | `FALSE` | Show the **Group Events by Date** menu item |
 | `showKeyConfiguratorMenuItems` | `TRUE` | `FALSE` | Show the three Key Configurator menu items |
 | `autoRefresh` | `TRUE` | `TRUE` | When `TRUE`, calendars auto-refresh on tab switch after source edits. See [Auto-Refresh](#auto-refresh). |
 | `frozenWeekdayHeader` | `TRUE` | `FALSE` | Show a frozen weekday header row |
@@ -797,5 +794,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.14.1
+v13.14.2
 ```
