@@ -5,6 +5,21 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.14.0
+
+### Added
+
+- **Today highlight.** Today's date cell on every calendar gets its own background + font color. Two new appearance options on the Key tab: `todayBackground` (default `#FCE4EC`) and `todayFontColor` (default `#4A0039`). All six bundled themes ship matching values. Event cells underneath today keep their category colors — the highlight is just on the date label cell.
+- **OR/OR multi-filter on calendar control row.** A2 (filter field) is now allow-invalid, so users can enable **Data → Data validation → Allow multiple selections** on that cell and pick more than one column. B2 (filter values) already supported multi-select. The filter is **OR across both axes**: a row passes if any selected column has any selected value. Single-column filtering still works exactly as before. The B2 value dropdown is populated from the combined unique values across every column picked in A2.
+- **Event sort order within a day.** New `eventSortOrder` Key setup option (dropdown of `Category / Status / Type / Alphabetical / Source` × `↓ / ↑`). Enable multi-select on the cell to stack sorts — first pick is primary, second is secondary, etc. Default `Category ↓, Status ↓, Alphabetical ↓`. `↓` = ascending (A-Z / oldest first / lowest first), `↑` = descending.
+
+### Notes
+
+- The today highlight is recomputed on every refresh, so a calendar rendered yesterday won't auto-update at midnight — it picks up the new highlight the next time something triggers a refresh (Auto-Refresh on tab switch, scheduled refresh box, etc.).
+- The default sort order changes the on-day order of events compared to v13.13.x (which preserved source-row order). To keep source order, set `eventSortOrder` to `Source ↓` on the Key tab.
+
+---
+
 ## v13.13.3
 
 ### Changed

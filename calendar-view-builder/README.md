@@ -512,6 +512,7 @@ Setup options are generated from the script defaults. The `Key` tab can override
 | `customAdditional` | `Owner` | `Owner` | Additional source fields to display below event title. Dropdown of headers from `defaultDataSheetName`; accepts custom comma-separated lists. Enable **Data → Data validation → Allow multiple selections** on this cell to pick several headers from the dropdown at once. |
 | `customAdditionalLabels` | `TRUE` | `TRUE` | Show labels for additional fields |
 | `customAdditionalLabelsStyle` | `Bold` | `Bold` | Style applied to additional field labels |
+| `eventSortOrder` | `Category ↓, Status ↓, Alphabetical ↓` | `Category ↓, Status ↓, Alphabetical ↓` | Sort order for events within a day. Dropdown of `Category / Status / Type / Alphabetical / Source` × `↓ / ↑`. Enable Allow-multiple-selections on the cell to stack sorts (primary, secondary, ...). `↓` = ascending, `↑` = descending. |
 | `q1StartMonth` | `January` | `January` | Month used as the start of Q1. Dropdown of month names. |
 | `startWeekOn` | `Sunday` | `Sunday` | First day of the week. Dropdown of day names. `Monday-CompressedWeekend` starts on Monday and renders Saturday + Sunday columns at half width. |
 | `dayFormat` | `EEEE` | `EEEE` | Format for weekday labels |
@@ -793,5 +794,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.13.3
+v13.14.0
 ```
