@@ -5,6 +5,18 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.14.1
+
+### Fixed
+
+- **Group Events by Date produced one merged group instead of distinct year/month groups.** `Range.shiftRowGroupDepth(1)` merges adjacent same-depth ranges into a single group, so three contiguous months (e.g. May / June / July 2026) collapsed into one big depth-2 group inside the year — what looked like "one big group, twice." Replaced the Apps Script grouping calls with direct Sheets API v4 `addDimensionGroup` requests via `UrlFetchApp` + `ScriptApp.getOAuthToken()`, which preserves each month as its own collapsible group. Same fix applies to clearing existing groups before re-grouping (now uses `deleteDimensionGroup`, descending by depth).
+
+### Changed
+
+- **`eventSortOrder` Key cell now starts blank.** When you create a new Key (or use `Update Key (add missing features)` to migrate an old one), the `eventSortOrder` cell is empty by default and the script default (`Category ↓, Status ↓, Alphabetical ↓`) applies via the standard "blank → fall back to script default" path. Type a value into the cell to override, or pick `Source ↓` to preserve source-row order.
+
+---
+
 ## v13.14.0
 
 ### Added

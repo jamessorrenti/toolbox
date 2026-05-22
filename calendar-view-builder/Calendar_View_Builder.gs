@@ -183,7 +183,7 @@ function buildCalendarMenu() {
 
 // Customization
 const CALENDAR = {
-  version: "13.14.0",
+  version: "13.14.1",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -384,7 +384,11 @@ const KEY_INITIAL_VALUES = {
   // It controls whether source-list edits trigger lazy calendar refresh on
   // tab switch.
   autoRefresh: true,
-  eventSortOrder: "Category ↓, Status ↓, Alphabetical ↓",
+  // Blank by default so the Key cell starts empty — applyKeyOverrides_ then
+  // leaves CALENDAR.setup.eventSortOrder at its script default
+  // ("Category ↓, Status ↓, Alphabetical ↓"). Users can type a value to
+  // override, or "Source ↓" to preserve source order without any sort.
+  eventSortOrder: "",
   frozenWeekdayHeader: false,
 };
 
@@ -2219,7 +2223,15 @@ function groupEventsByDate() {
   }
 
   // Clear any existing row groups in the data area before re-grouping.
-  clearAllRowGroups_(sheet);
+  const clearRes = clearRowGroupsViaApi_(sheet);
+  if (!clearRes.ok) {
+    ui.alert(
+      "Group Events by Date",
+      "Couldn't clear existing row groups via the Sheets API.\n\n" + clearRes.error,
+      ui.ButtonSet.OK
+    );
+    return;
+  }
 
   // Sort by the date column ascending. The whole row sorts together so other
   // columns stay aligned.
@@ -2266,18 +2278,37 @@ function groupEventsByDate() {
   }
   closeBlocks(yearMonths.length + 1);
 
-  // Apply year groups first (depth 1), then month groups (becomes depth 2
-  // since they're inside a year group).
-  yearBlocks.forEach(b => {
-    if (b.endRow >= b.startRow) {
-      sheet.getRange(b.startRow, 1, b.endRow - b.startRow + 1, 1).shiftRowGroupDepth(1);
-    }
-  });
-  monthBlocks.forEach(b => {
-    if (b.endRow >= b.startRow) {
-      sheet.getRange(b.startRow, 1, b.endRow - b.startRow + 1, 1).shiftRowGroupDepth(1);
-    }
-  });
+  // Apply year groups first (depth 1), then month groups (depth 2, inside the
+  // year groups). We use the Sheets API v4 addDimensionGroup directly because
+  // Apps Script's Range.shiftRowGroupDepth() merges adjacent same-depth ranges
+  // into a single group — so three adjacent months would collapse into one
+  // big group instead of staying distinct.
+  const yearRanges = yearBlocks
+    .filter(b => b.endRow >= b.startRow)
+    .map(b => ({ startRow: b.startRow, endRow: b.endRow }));
+  const monthRanges = monthBlocks
+    .filter(b => b.endRow >= b.startRow)
+    .map(b => ({ startRow: b.startRow, endRow: b.endRow }));
+
+  const yearRes = addRowGroupsViaApi_(sheet, yearRanges);
+  if (!yearRes.ok) {
+    ui.alert(
+      "Group Events by Date",
+      "Couldn't create year groups via the Sheets API.\n\n" + yearRes.error,
+      ui.ButtonSet.OK
+    );
+    return;
+  }
+  const monthRes = addRowGroupsViaApi_(sheet, monthRanges);
+  if (!monthRes.ok) {
+    ui.alert(
+      "Group Events by Date",
+      "Couldn't create month groups via the Sheets API.\n\n" + monthRes.error,
+      ui.ButtonSet.OK
+    );
+    return;
+  }
+  SpreadsheetApp.flush();
 
   // Collapse past groups. A whole past year collapses its months too, so we
   // only handle past months of the *current* year separately.
@@ -2312,19 +2343,117 @@ function groupEventsByDate() {
   );
 }
 
-// Removes all row groups from the sheet. shiftRowGroupDepth(-1) on a range
-// reduces every row's group depth by 1; calling it repeatedly until no more
-// groups exist is the safest portable way to clear nested groups.
-function clearAllRowGroups_(sheet) {
-  const lastRow = sheet.getMaxRows();
-  if (lastRow < 1) return;
-  for (let i = 0; i < 5; i++) {
-    try {
-      sheet.getRange(1, 1, lastRow, 1).shiftRowGroupDepth(-1);
-    } catch (err) {
-      break;
-    }
+// Static scope hint for Apps Script's automatic OAuth scope detection. The
+// Sheets API v4 calls below (via UrlFetchApp) require the broader
+// `https://www.googleapis.com/auth/spreadsheets` scope rather than the
+// default `spreadsheets.currentonly`. Apps Script grants the broader scope
+// when it sees a `SpreadsheetApp.openById` reference anywhere in source.
+// This function is never invoked.
+function __forceSpreadsheetsScope_() {
+  if (false) {
+    SpreadsheetApp.openById("never-runs");
   }
+}
+
+// Adds row groups to `sheet` via the Sheets API v4 batchUpdate. We use the
+// raw API (instead of Range.shiftRowGroupDepth) because Apps Script merges
+// adjacent same-depth ranges into one group, but addDimensionGroup keeps
+// them distinct. Ranges are 1-indexed inclusive (sheet rows); the API uses
+// 0-indexed half-open intervals.
+function addRowGroupsViaApi_(sheet, ranges) {
+  if (!ranges || !ranges.length) return { ok: true };
+  const ssId = sheet.getParent().getId();
+  const sheetId = sheet.getSheetId();
+  const requests = ranges.map(r => ({
+    addDimensionGroup: {
+      range: {
+        sheetId: sheetId,
+        dimension: "ROWS",
+        startIndex: r.startRow - 1,
+        endIndex: r.endRow,
+      },
+    },
+  }));
+  return sheetsBatchUpdate_(ssId, requests);
+}
+
+// Clears all existing row groups on `sheet` by reading the sheet's rowGroups
+// metadata and issuing deleteDimensionGroup requests in descending depth so
+// inner groups go first.
+function clearRowGroupsViaApi_(sheet) {
+  const ssId = sheet.getParent().getId();
+  const sheetId = sheet.getSheetId();
+
+  const metaUrl =
+    "https://sheets.googleapis.com/v4/spreadsheets/" +
+    encodeURIComponent(ssId) +
+    "?fields=" + encodeURIComponent("sheets(properties(sheetId),rowGroups)");
+
+  let resp;
+  try {
+    resp = UrlFetchApp.fetch(metaUrl, {
+      method: "get",
+      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+      muteHttpExceptions: true,
+    });
+  } catch (err) {
+    return { ok: false, error: "metadata fetch threw: " + err.message };
+  }
+  const code = resp.getResponseCode();
+  if (code < 200 || code >= 300) {
+    return { ok: false, error: "metadata HTTP " + code + ": " + resp.getContentText() };
+  }
+
+  let meta;
+  try {
+    meta = JSON.parse(resp.getContentText());
+  } catch (err) {
+    return { ok: false, error: "metadata JSON parse failed: " + err.message };
+  }
+
+  const sheetMeta = (meta.sheets || []).find(
+    s => s && s.properties && s.properties.sheetId === sheetId
+  );
+  const rowGroups = (sheetMeta && sheetMeta.rowGroups) || [];
+  if (!rowGroups.length) return { ok: true, count: 0 };
+
+  rowGroups.sort((a, b) => (b.depth || 0) - (a.depth || 0));
+  const requests = rowGroups.map(g => ({
+    deleteDimensionGroup: {
+      range: {
+        sheetId: sheetId,
+        dimension: "ROWS",
+        startIndex: g.range.startIndex,
+        endIndex: g.range.endIndex,
+      },
+    },
+  }));
+  const res = sheetsBatchUpdate_(ssId, requests);
+  if (res.ok) res.count = rowGroups.length;
+  return res;
+}
+
+// Posts a Sheets API v4 batchUpdate. Returns {ok, error?}.
+function sheetsBatchUpdate_(ssId, requests) {
+  if (!requests || !requests.length) return { ok: true };
+  const url =
+    "https://sheets.googleapis.com/v4/spreadsheets/" +
+    encodeURIComponent(ssId) + ":batchUpdate";
+  let resp;
+  try {
+    resp = UrlFetchApp.fetch(url, {
+      method: "post",
+      contentType: "application/json",
+      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+      payload: JSON.stringify({ requests: requests }),
+      muteHttpExceptions: true,
+    });
+  } catch (err) {
+    return { ok: false, error: "batchUpdate threw: " + err.message };
+  }
+  const code = resp.getResponseCode();
+  if (code >= 200 && code < 300) return { ok: true };
+  return { ok: false, error: "batchUpdate HTTP " + code + ": " + resp.getContentText() };
 }
 
 function buildKeySheet_(sheet) {
