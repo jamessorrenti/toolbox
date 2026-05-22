@@ -6,10 +6,6 @@
  * per-calendar filters, refresh, event hover details, and overflow modals.
  *
  * Configure source, dates, filters, and refresh from the top rows.
- *
- * v13 renderer: styles custom additional labels only.
- *
- * The version string lives in CALENDAR.version below.
  */
 
 // Global sheet name variables. The Key tab can override these — see
@@ -173,7 +169,7 @@ function buildCalendarMenu() {
 
 // Customization
 const CALENDAR = {
-  version: "13.14.2",
+  version: "13.15.0",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -944,7 +940,11 @@ function isSourceDataSheet_(sheet) {
     for (let i = 0; i < sheets.length; i++) {
       if (!isCalendarSheet(sheets[i])) continue;
       const g1 = String(sheets[i].getRange("G1").getDisplayValue() || "").trim();
-      if (g1 === name) return true;
+      if (!g1) continue;
+      // G1 may be multi-select (comma/semicolon separated) — match membership
+      // rather than the whole string.
+      const tokens = parseFilterValues_(g1);
+      if (tokens.indexOf(name) >= 0) return true;
     }
   } catch (err) {}
   return false;
@@ -2356,10 +2356,15 @@ function readDefaultDataSheetHeaders_(ss) {
       if (!isCalendarSheet(sheets[i])) continue;
       const g1 = String(sheets[i].getRange("G1").getDisplayValue() || "").trim();
       if (!g1) continue;
-      const target = ss.getSheetByName(g1);
-      if (!target) continue;
-      const headers = readHeaders_(target);
-      if (headers.length) return headers;
+      // G1 may be a multi-select list — try each token, return the first
+      // sheet that resolves and has headers.
+      const tokens = parseFilterValues_(g1);
+      for (let j = 0; j < tokens.length; j++) {
+        const target = ss.getSheetByName(tokens[j]);
+        if (!target) continue;
+        const headers = readHeaders_(target);
+        if (headers.length) return headers;
+      }
     }
   } catch (err) {}
 
@@ -2740,15 +2745,21 @@ function setSourceSheetDropdown_(sheet) {
     return;
   }
 
-  setDropdownValidation(cell, names, false);
+  // Allow-invalid so the cell tolerates a comma-separated value once the user
+  // enables Data → Data validation → Allow multiple selections. With one tab
+  // selected the cell behaves like the legacy single-source dropdown.
+  setDropdownValidation(cell, names, true);
 
   const current = String(cell.getValue() || "").trim();
-
-  if (!current || names.indexOf(current) < 0) {
+  if (!current) {
     cell.setValue(getDefaultSourceSpec(ss));
   }
 
-  cell.setNote("Choose a local source tab for this calendar. Data is read from a sheet in this spreadsheet only.");
+  cell.setNote(
+    "Choose a local source tab for this calendar. " +
+    "To combine events from multiple tabs, open Data > Data validation on this cell " +
+    "and enable Allow multiple selections."
+  );
 }
 
 function setFilterDropdowns_(sheet, resetValueValidation) {
@@ -3686,6 +3697,19 @@ function isCompressedWeekend_() {
   return String(CALENDAR.setup.startWeekOn || "").trim() === "Monday-CompressedWeekend";
 }
 
+// Resolves one or more source sheets from G1 (sourceSpec) and returns a
+// unified rows/headers structure.
+//
+// Multi-source: when sourceSpec parses (via parseFilterValues_) to more than
+// one sheet name, headers from each resolved sheet are merged in first-seen
+// order, each row is realigned to that unioned header layout, and each row
+// carries its own __sourceMeta so the title link in indexEventsByDate routes
+// back to the correct sheet. Missing columns on a given source contribute
+// blank cells for that row — no warnings.
+//
+// Empty spec falls back to defaultDataSheetName (then to the first sheet).
+// Non-empty spec that resolves to zero existing sheets surfaces a single
+// toast per render session.
 function loadSourceData(ss, sourceSpec) {
   const cacheKey = String(sourceSpec || "");
 
@@ -3693,73 +3717,126 @@ function loadSourceData(ss, sourceSpec) {
     return RENDER_SESSION.sourceData[cacheKey];
   }
 
-  const parsed = resolveSource(ss, sourceSpec);
+  const resolved = resolveSources_(ss, sourceSpec);
 
-  let result;
-  if (!parsed.sheet) {
-    result = {
-      spreadsheetName: parsed.spreadsheetName,
-      sheetName: parsed.sheetName || "",
-      headers: [],
-      rows: [],
-      sourceMeta: parsed
-    };
-  } else {
+  const headerOrder = [];
+  const headerIndex = {};
+  const aggregatedRows = [];
+  let firstSourceMeta = null;
+
+  resolved.sources.forEach(parsed => {
+    if (!parsed.sheet) return;
     const values = parsed.sheet.getDataRange().getValues();
+    if (!values || values.length === 0) return;
 
-    if (!values || values.length === 0) {
-      result = {
-        spreadsheetName: parsed.spreadsheetName,
-        sheetName: parsed.sheet.getName(),
-        headers: [],
-        rows: [],
-        sourceMeta: parsed
-      };
-    } else {
-      const headers = values[0].map(v => String(v || "").trim());
+    const sourceHeaders = values[0].map(v => String(v || "").trim());
+    const remap = sourceHeaders.map(h => {
+      const norm = normalizeKey_(h);
+      if (norm === "") return -1;
+      if (!Object.prototype.hasOwnProperty.call(headerIndex, norm)) {
+        headerIndex[norm] = headerOrder.length;
+        headerOrder.push(h);
+      }
+      return headerIndex[norm];
+    });
 
-      const rows = values
-        .slice(1)
-        .map((row, index) => {
-          row.__sourceRowNumber = index + 2;
-          return row;
-        })
-        .filter(row => row.some(cell => String(cell || "").trim() !== ""));
+    const perSourceMeta = {
+      spreadsheetName: parsed.spreadsheetName,
+      spreadsheetId: parsed.spreadsheetId,
+      sheetId: parsed.sheetId,
+      sheetName: parsed.sheetName,
+      sourceType: parsed.sourceType,
+    };
+    if (!firstSourceMeta) firstSourceMeta = perSourceMeta;
 
-      result = {
-        spreadsheetName: parsed.spreadsheetName,
-        sheetName: parsed.sheet.getName(),
-        headers,
-        rows,
-        sourceMeta: parsed
-      };
-    }
+    values.slice(1).forEach((row, index) => {
+      if (!row.some(cell => String(cell || "").trim() !== "")) return;
+      const aligned = new Array(headerOrder.length).fill("");
+      for (let i = 0; i < sourceHeaders.length; i++) {
+        const target = remap[i];
+        if (target >= 0) aligned[target] = row[i];
+      }
+      aligned.__sourceRowNumber = index + 2;
+      aligned.__sourceMeta = perSourceMeta;
+      aggregatedRows.push(aligned);
+    });
+  });
+
+  // Earlier sources' rows may be shorter than the final header count if a
+  // later source introduced new columns. Pad them so every row matches.
+  const finalLen = headerOrder.length;
+  if (finalLen > 0) {
+    aggregatedRows.forEach(row => {
+      while (row.length < finalLen) row.push("");
+    });
   }
+
+  const result = {
+    spreadsheetName: firstSourceMeta ? firstSourceMeta.spreadsheetName : ss.getName(),
+    sheetName: resolved.sources.map(s => s.sheetName).filter(Boolean).join(", "),
+    headers: headerOrder,
+    rows: aggregatedRows,
+    sourceMeta: firstSourceMeta || {
+      spreadsheetName: ss.getName(),
+      spreadsheetId: ss.getId(),
+      sheetName: "",
+      sheetId: null,
+      sourceType: "local",
+    },
+  };
 
   if (RENDER_SESSION.active) {
     RENDER_SESSION.sourceData[cacheKey] = result;
   }
 
+  if (resolved.unresolvedSpec) {
+    try {
+      const seen = RENDER_SESSION.toastedSpecs || (RENDER_SESSION.toastedSpecs = {});
+      if (!seen[cacheKey]) {
+        seen[cacheKey] = true;
+        ss.toast(
+          'No source sheets matched "' + resolved.unresolvedSpec + '". Set G1 to a tab name.',
+          CALENDAR.menuName,
+          6
+        );
+      }
+    } catch (err) {}
+  }
+
   return result;
 }
 
-function resolveSource(activeSpreadsheet, sourceSpec) {
+// Parses sourceSpec into 1+ resolved source descriptors. Empty spec falls
+// back to defaultDataSheetName, then to the first sheet. Multi-value spec
+// is parsed with parseFilterValues_ (comma / semicolon / newline) — same
+// pattern as the A2/B2 OR/OR filter so users see one consistent rule.
+function resolveSources_(activeSpreadsheet, sourceSpec) {
   const spec = String(sourceSpec || "").trim();
 
-  if (spec) {
-    const localSheet = activeSpreadsheet.getSheetByName(spec);
-    if (localSheet) {
-      return {
-        spreadsheetName: activeSpreadsheet.getName(),
-        spreadsheetId: activeSpreadsheet.getId(),
-        sheet: localSheet,
-        sheetName: localSheet.getName(),
-        sheetId: localSheet.getSheetId(),
-        sourceType: "local"
-      };
-    }
+  if (!spec) {
+    return { sources: [defaultSourceMeta_(activeSpreadsheet)], unresolvedSpec: "" };
   }
 
+  const names = parseFilterValues_(spec);
+  const sources = [];
+  names.forEach(name => {
+    const sheet = activeSpreadsheet.getSheetByName(name);
+    if (!sheet) return;
+    sources.push({
+      spreadsheetName: activeSpreadsheet.getName(),
+      spreadsheetId: activeSpreadsheet.getId(),
+      sheet: sheet,
+      sheetName: sheet.getName(),
+      sheetId: sheet.getSheetId(),
+      sourceType: "local",
+    });
+  });
+
+  if (sources.length) return { sources: sources, unresolvedSpec: "" };
+  return { sources: [], unresolvedSpec: spec };
+}
+
+function defaultSourceMeta_(activeSpreadsheet) {
   const dataSheet = activeSpreadsheet.getSheetByName(CALENDAR.defaultDataSheetName);
   if (dataSheet) {
     return {
@@ -3768,19 +3845,18 @@ function resolveSource(activeSpreadsheet, sourceSpec) {
       sheet: dataSheet,
       sheetName: dataSheet.getName(),
       sheetId: dataSheet.getSheetId(),
-      sourceType: "local"
+      sourceType: "local",
     };
   }
 
   const fallback = activeSpreadsheet.getSheets()[0];
-
   return {
     spreadsheetName: activeSpreadsheet.getName(),
     spreadsheetId: activeSpreadsheet.getId(),
     sheet: fallback,
     sheetName: fallback.getName(),
     sheetId: fallback.getSheetId(),
-    sourceType: "local"
+    sourceType: "local",
   };
 }
 
@@ -3981,7 +4057,11 @@ function indexEventsByDate(rows, headers, sourceMeta, keyConfig) {
     const statusIcon = status ? keyConfig.statusIcons[normalizeKey_(status)] || "" : "";
     const categoryColor = category ? keyConfig.categoryColors[normalizeKey_(category)] || "" : "";
 
-    const titleUrl = buildSourceCellUrl(sourceMeta, sourceRowNumber, linkTargetCol + 1);
+    // Each row may carry its own __sourceMeta when sourceSpec resolves to
+    // multiple sheets (v13.15.0+). Fall back to the calendar-wide sourceMeta
+    // when the row didn't get tagged (single-source path).
+    const rowSourceMeta = row.__sourceMeta || sourceMeta;
+    const titleUrl = buildSourceCellUrl(rowSourceMeta, sourceRowNumber, linkTargetCol + 1);
     const sourceUrl = titleUrl;
 
     const additional = additionalCols.map((col) => ({

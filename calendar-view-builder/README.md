@@ -93,7 +93,7 @@ It is safe to re-run. Existing tabs are left in place; only missing tabs are cre
 
 **Using a pre-existing event list?** If you already have a sheet of events (under any tab name and any column layout) you do **not** need Initial Setup. Two options:
 
-- Point your calendar tab's `Source Data` dropdown (`G1`) at your existing tab, and make sure your date column matches `customDate` (default `Date`) and your title column matches `customTitle` (default `Title`). Both can be overridden from the `Key` tab.
+- Point your calendar tab's `Source Data` dropdown (`G1`) at your existing tab, and make sure your date column matches `customDate` (default `Date`) and your title column matches `customTitle` (default `Title`). Both can be overridden from the `Key` tab. To combine events from more than one source tab, open **Data → Data validation** on `G1` and enable **Allow multiple selections** — headers are unioned across the picked tabs, and each event's link still routes back to its own source row.
 - Or run **Calendar Tools > Set Key From Event List** — it walks you through picking which columns hold Date / Title / Type / Category / Status and which unique values become Key entries, then writes them into the Key tab for you. See [Set Key From Event List](#set-key-from-event-list).
 
 You can hide or show the **Initial Setup**, **Create Event List**, **Set Key From Event List**, and Key Configurator menu items from the `Key` tab — see [Menu visibility toggles](#menu-visibility-toggles).
@@ -406,7 +406,7 @@ Each calendar tab includes controls in the top rows.
 | C1 | Month count label |
 | D1 | Month count |
 | F1 | Source data label |
-| G1 | Source sheet |
+| G1 | Source sheet. Open **Data → Data validation** on this cell and enable **Allow multiple selections** to combine events from multiple tabs into one calendar (v13.15.0+). |
 
 ### Row 2
 
@@ -794,5 +794,5 @@ Some settings, such as menu visibility, require the spreadsheet to be reloaded.
 ## Current version
 
 ```text
-v13.14.2
+v13.15.0
 ```

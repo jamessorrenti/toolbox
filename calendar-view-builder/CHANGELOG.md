@@ -5,6 +5,26 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.15.0
+
+### Added
+
+- **Multi-source `G1`.** A calendar can now combine events from more than one source sheet. The G1 dropdown is allow-invalid, so users can open **Data → Data validation** on G1 and enable **Allow multiple selections** to pick several tabs — same pattern as the v13.14.0 A2/B2 OR/OR filter. The renderer unions headers across the picked sheets in first-seen order, aligns each row to the union (missing columns contribute blanks, silently), and tags every row with its origin so the title link in cells and the Open Selected modal route back to the correct sheet. Single-tab G1 behaves exactly as before — multi-source is purely opt-in via the multi-select UI.
+- `isSourceDataSheet_` and the `defaultDataSheetName` header-fallback now parse a multi-token G1, so Auto-Refresh and Key-tab dropdowns work for every named source.
+
+### Notes
+
+- Categories/statuses/types are looked up in the Key tab by value regardless of which source contributed the row. If one source uses `Marketing` and another uses `Mktg`, only the value that matches a Key row gets the color/icon — same behavior as a single source with mixed values.
+- The Key Configurator (`Run key configurator`, `Set key-based validation`, `Set key-based colors`) still operates only on `defaultDataSheetName`. Run it manually on each source you want validated/colored.
+- If G1 resolves to zero existing tabs (typo, deleted tabs), the calendar renders blank and toasts once per refresh: `No source sheets matched "<spec>". Set G1 to a tab name.`
+
+### Internal
+
+- Replaced `resolveSource` (singular) with `resolveSources_` returning a list, plus a new `defaultSourceMeta_` helper. `loadSourceData` now builds a unioned header layout and tags each row with `__sourceMeta` so `indexEventsByDate` can build per-row source URLs.
+- Dropped a stale comment block from the file header (`v13 renderer: styles custom additional labels only.` / `The version string lives in CALENDAR.version below.`).
+
+---
+
 ## v13.14.2
 
 ### Removed
