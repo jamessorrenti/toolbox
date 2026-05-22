@@ -5,6 +5,33 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.14.2
+
+### Removed
+
+- **`Group Events by Date` menu item, `showGroupEventsByDateMenu` toggle, and the `groupEventsByDate` function are gone.** The feature relied on nested year+month row groups, but `Range.shiftRowGroupDepth(1)` merges adjacent same-depth ranges into a single group — so three contiguous months (May / June / July 2026) collapsed into one big depth-2 group inside the year ("one big group, twice"). The only ways to keep month blocks distinct were (a) call Sheets API v4 `addDimensionGroup` via `UrlFetchApp` + OAuth token, which requires each end user to enable the Sheets API in their underlying GCP project, or (b) insert "month header" rows between data blocks as gap rows, which mutates the event list that the calendar renderer reads from. Neither was a clean fit, so the feature is removed. The shipped pieces from v13.14.0 — today highlight, OR/OR multi-filter, event sort order — are unchanged. (Internal: also removed the `addRowGroupsViaApi_` / `clearRowGroupsViaApi_` / `sheetsBatchUpdate_` / `__forceSpreadsheetsScope_` helpers that were shipped in v13.14.1.)
+
+### Changed
+
+- **`eventSortOrder` Key cell now starts blank.** When you create a new Key (or use `Update Key (add missing features)` to migrate an old one), the `eventSortOrder` cell is empty by default and the script default (`Category ↓, Status ↓, Alphabetical ↓`) applies via the standard "blank → fall back to script default" path. Type a value into the cell to override, or pick `Source ↓` to preserve source-row order.
+
+---
+
+## v13.14.0
+
+### Added
+
+- **Today highlight.** Today's date cell on every calendar gets its own background + font color. Two new appearance options on the Key tab: `todayBackground` (default `#FCE4EC`) and `todayFontColor` (default `#4A0039`). All six bundled themes ship matching values. Event cells underneath today keep their category colors — the highlight is just on the date label cell.
+- **OR/OR multi-filter on calendar control row.** A2 (filter field) is now allow-invalid, so users can enable **Data → Data validation → Allow multiple selections** on that cell and pick more than one column. B2 (filter values) already supported multi-select. The filter is **OR across both axes**: a row passes if any selected column has any selected value. Single-column filtering still works exactly as before. The B2 value dropdown is populated from the combined unique values across every column picked in A2.
+- **Event sort order within a day.** New `eventSortOrder` Key setup option (dropdown of `Category / Status / Type / Alphabetical / Source` × `↓ / ↑`). Enable multi-select on the cell to stack sorts — first pick is primary, second is secondary, etc. Default `Category ↓, Status ↓, Alphabetical ↓`. `↓` = ascending (A-Z / oldest first / lowest first), `↑` = descending.
+
+### Notes
+
+- The today highlight is recomputed on every refresh, so a calendar rendered yesterday won't auto-update at midnight — it picks up the new highlight the next time something triggers a refresh (Auto-Refresh on tab switch, scheduled refresh box, etc.).
+- The default sort order changes the on-day order of events compared to v13.13.x (which preserved source-row order). To keep source order, set `eventSortOrder` to `Source ↓` on the Key tab.
+
+---
+
 ## v13.13.3
 
 ### Changed

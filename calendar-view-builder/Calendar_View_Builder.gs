@@ -173,7 +173,7 @@ function buildCalendarMenu() {
 
 // Customization
 const CALENDAR = {
-  version: "13.13.3",
+  version: "13.14.2",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -237,6 +237,8 @@ const CALENDAR = {
     customType: "Type",
     customCategory: "Category",
     customStatus: "Status",
+
+    eventSortOrder: "Category ↓, Status ↓, Alphabetical ↓",
   },
 
   keyDefaults: {
@@ -308,6 +310,9 @@ const CALENDAR = {
     eventDefaultFontColor: "#000000",
     overflowBackground: "#F2EEEB",
     overflowFontColor: "#4A0039",
+
+    todayBackground: "#FCE4EC",
+    todayFontColor: "#4A0039",
   },
 
   layout: {
@@ -342,6 +347,7 @@ const KEY_SETUP_OPTIONS = [
   "customStatus",
   "maxEvents",
   "customAdditional",
+  "eventSortOrder",
   "customAdditionalLabels",
   "customAdditionalLabelsStyle",
   "q1StartMonth",
@@ -365,6 +371,11 @@ const KEY_INITIAL_VALUES = {
   // It controls whether source-list edits trigger lazy calendar refresh on
   // tab switch.
   autoRefresh: true,
+  // Blank by default so the Key cell starts empty — applyKeyOverrides_ then
+  // leaves CALENDAR.setup.eventSortOrder at its script default
+  // ("Category ↓, Status ↓, Alphabetical ↓"). Users can type a value to
+  // override, or "Source ↓" to preserve source order without any sort.
+  eventSortOrder: "",
   frozenWeekdayHeader: false,
 };
 
@@ -379,6 +390,8 @@ const KEY_APPEARANCE_OPTIONS = [
   "eventDefaultFontColor",
   "overflowBackground",
   "overflowFontColor",
+  "todayBackground",
+  "todayFontColor",
 
   "month1HeaderBackground",
   "month1HeaderFontColor",
@@ -406,6 +419,18 @@ const KEY_APPEARANCE_OPTIONS = [
   "month3DaysFontColor",
   "month3DaysInactiveBackgroundColor",
   "month3DaysInactiveFontColor",
+];
+
+// Options offered in the eventSortOrder dropdown.
+//   "↓" = ascending  (A-Z, oldest first, lowest first)
+//   "↑" = descending (Z-A, newest first, highest first)
+// Multi-select on the Key cell stacks the order: primary, secondary, etc.
+const EVENT_SORT_OPTIONS = [
+  "Category ↓", "Category ↑",
+  "Status ↓", "Status ↑",
+  "Type ↓", "Type ↑",
+  "Alphabetical ↓", "Alphabetical ↑",
+  "Source ↓", "Source ↑",
 ];
 
 // === Per-tab override =====================================================
@@ -2145,7 +2170,6 @@ function buildEventsSheet_(sheet) {
   sheet.setRowHeight(1, 30);
 }
 
-
 function buildKeySheet_(sheet) {
   sheet.clear({ contentsOnly: false });
   sheet.setHiddenGridlines(true);
@@ -2297,6 +2321,18 @@ function applyKeySetupValidations_(sheet) {
       sheet.getRange(row, 12).clearDataValidations();
     }
   });
+
+  // eventSortOrder: each option is a "<Field> <↓|↑>" token. Multi-select
+  // (enable "Allow multiple selections" on the cell) lets you stack sorts —
+  // commas separate primary, secondary, tertiary, etc.
+  const sortRow = findKeyOptionRow_(sheet, "eventSortOrder");
+  if (sortRow) {
+    setDropdownValidation(
+      sheet.getRange(sortRow, 12),
+      EVENT_SORT_OPTIONS,
+      true
+    );
+  }
 }
 
 function readDefaultDataSheetHeaders_(ss) {
@@ -2725,25 +2761,42 @@ function setFilterDropdowns_(sheet, resetValueValidation) {
   const valueCell = sheet.getRange("B2");
   const filterOptions = [defaultLabel].concat(headers);
 
-  setDropdownValidation(filterCell, filterOptions, false);
+  // Allow-invalid so the user can enable "Allow multiple selections" on this
+  // cell via Sheets' data validation dialog and pick more than one column at
+  // once — filterRowsForCalendar_ handles the comma-separated multi value.
+  setDropdownValidation(filterCell, filterOptions, true);
 
   let filterField = String(filterCell.getDisplayValue() || "").trim();
-  if (!filterField || filterOptions.indexOf(filterField) < 0) {
+  // Treat a value containing only the default label or a single picked column
+  // as known. Multi-select strings won't match indexOf — accept them as-is.
+  const fieldTokens = parseFilterValues_(filterField).filter(t => t !== defaultLabel);
+  if (!filterField || (fieldTokens.length === 0 && filterField !== defaultLabel)) {
     filterField = defaultLabel;
     filterCell.setValue(filterField);
   }
 
-  filterCell.setNote("Choose a source column to filter this calendar view.");
+  filterCell.setNote("Choose a source column to filter. Enable Allow multiple selections via Data > Data validation to filter on several columns at once (OR across columns + values).");
 
-  if (filterField === defaultLabel) {
+  // Multi-column support: collect unique values across all picked columns.
+  const filterColumns = parseFilterValues_(filterField).filter(c => c !== defaultLabel);
+  if (filterColumns.length === 0) {
     if (resetValueValidation) valueCell.clearDataValidations();
     valueCell.setNote("Choose a filter field first.");
     syncFilterStyles_(sheet);
     return;
   }
 
-  const colIndex = findColumnIndex(headers, [filterField]);
-  const values = uniqueValuesFromColumn_(source.rows, colIndex);
+  const seen = Object.create(null);
+  const values = [];
+  filterColumns.forEach(col => {
+    const colIndex = findColumnIndex(headers, [col]);
+    if (colIndex < 0) return;
+    uniqueValuesFromColumn_(source.rows, colIndex).forEach(v => {
+      const k = normalizeKey_(v);
+      if (!seen[k]) { seen[k] = true; values.push(v); }
+    });
+  });
+  values.sort((a, b) => String(a).localeCompare(String(b)));
 
   if (!values.length) {
     if (resetValueValidation) valueCell.clearDataValidations();
@@ -2756,7 +2809,7 @@ function setFilterDropdowns_(sheet, resetValueValidation) {
     setDropdownValidation(valueCell, values, true);
   }
 
-  valueCell.setNote("Choose one or more values. To use native multi-select, enable Allow multiple selections for this cell in Data validation.");
+  valueCell.setNote("Choose one or more values. To use native multi-select, enable Allow multiple selections for this cell in Data validation. With multi-column A2 + multi-value B2, the filter is OR across both axes.");
   syncFilterStyles_(sheet);
 }
 
@@ -3157,6 +3210,7 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
   const theme = getMonthTheme(monthIndexInView);
   const maxEvents = getMaxEvents_();
   const fontFamily = CALENDAR.setup.fontFamily;
+  const todayKey = dateKey(new Date());
 
   // --- Month title rows (startRow + 0, startRow + 1) ---
   const titleRange = sheet.getRange(startRow, 1, 2, 7);
@@ -3238,9 +3292,14 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
 
       const key = dateKey(cellDate);
       const events = eventsByDate[key] || [];
+      const isToday = key === todayKey;
 
-      // Date cell: bold + colored, encoded in rich text.
-      const dateColor = inMonth ? theme.daysFontColor : theme.inactiveDaysFontColor;
+      // Date cell: bold + colored, encoded in rich text. Today gets its own
+      // highlight color set on the date cell only — event cells underneath
+      // keep their category-color backgrounds intact.
+      const dateColor = isToday
+        ? CALENDAR.colors.todayFontColor
+        : (inMonth ? theme.daysFontColor : theme.inactiveDaysFontColor);
       const dateText = formatCalendarDateLabel_(cellDate);
       const dateStyle = SpreadsheetApp.newTextStyle()
         .setForegroundColor(dateColor)
@@ -3251,7 +3310,9 @@ function renderMonthSection(sheet, startRow, monthDate, eventsByDate, monthIndex
         .setText(dateText)
         .setTextStyle(0, dateText.length, dateStyle)
         .build();
-      dateRowBg[day] = inMonth ? theme.daysBackground : theme.inactiveDaysBackground;
+      dateRowBg[day] = isToday
+        ? CALENDAR.colors.todayBackground
+        : (inMonth ? theme.daysBackground : theme.inactiveDaysBackground);
       dateRowHa[day] = "left";
       dateRowVa[day] = "middle";
       dateRowNotes[day] = "";
@@ -3730,18 +3791,33 @@ function filterRowsForCalendar_(rows, headers, controls) {
 
   if (!filterField || filterField === defaultLabel || !filterValue) return rows;
 
-  const colIndex = findColumnIndex(headers, [filterField]);
-  if (colIndex < 0) return rows;
+  // A2 supports multi-select: parse the field cell the same way as the value
+  // cell. Default-label entries are filtered out so they don't act as columns.
+  const filterColumns = parseFilterValues_(filterField).filter(c => c !== defaultLabel);
+  if (!filterColumns.length) return rows;
+
+  const colIndices = [];
+  filterColumns.forEach(col => {
+    const idx = findColumnIndex(headers, [col]);
+    if (idx >= 0) colIndices.push(idx);
+  });
+  if (!colIndices.length) return rows;
 
   const selectedValues = parseFilterValues_(filterValue);
   if (!selectedValues.length) return rows;
 
   const selectedMap = {};
-  selectedValues.forEach(value => selectedMap[normalizeKey_(value)] = true);
+  selectedValues.forEach(v => { selectedMap[normalizeKey_(v)] = true; });
 
+  // OR across columns AND across values: a row passes if any selected column
+  // contains any selected value. Each row matches at most once regardless of
+  // how many columns hit (the loop short-circuits on first true).
   return (rows || []).filter(row => {
-    const value = String(row[colIndex] || "").trim();
-    return !!selectedMap[normalizeKey_(value)];
+    for (let i = 0; i < colIndices.length; i++) {
+      const v = String(row[colIndices[i]] || "").trim();
+      if (selectedMap[normalizeKey_(v)]) return true;
+    }
+    return false;
   });
 }
 
@@ -3935,11 +4011,69 @@ function indexEventsByDate(rows, headers, sourceMeta, keyConfig) {
         categoryColor,
         detailDate: String(row[dateCol] || "").trim(),
         additional,
+        sourceRow: sourceRowNumber,
       });
     });
   });
 
+  // Sort each day's events per the CALENDAR.setup.eventSortOrder spec.
+  // No-op if the spec is blank or all entries parse as unknown.
+  const sortSpec = parseEventSortSpec_(CALENDAR.setup.eventSortOrder);
+  if (sortSpec.length > 0) {
+    Object.keys(map).forEach(key => {
+      sortDayEvents_(map[key], sortSpec);
+    });
+  }
+
   return map;
+}
+
+// Parses a value like "Category ↓, Status ↑, Alphabetical ↓" into:
+//   [{field: "Category", dir: "Asc"}, {field: "Status", dir: "Desc"}, ...]
+// Accepts arrays (joined first), comma/semicolon/newline separators, and
+// "Asc"/"Desc" or "↓"/"↑" direction tokens. Unknown segments are dropped.
+function parseEventSortSpec_(raw) {
+  if (Array.isArray(raw)) raw = raw.join(",");
+  return String(raw || "")
+    .split(/[,;\n]/)
+    .map(s => String(s || "").trim())
+    .filter(s => s !== "")
+    .map(s => {
+      let m = s.match(/^(.+?)\s*([↓↑])$/);
+      if (m) return { field: m[1].trim(), dir: m[2] === "↓" ? "Asc" : "Desc" };
+      m = s.match(/^(.+?)\s+(asc|desc)$/i);
+      if (m) return { field: m[1].trim(), dir: m[2].toLowerCase() === "asc" ? "Asc" : "Desc" };
+      return null;
+    })
+    .filter(p => p);
+}
+
+function sortDayEvents_(events, sortSpec) {
+  if (!events || events.length < 2) return;
+  // Stable-sort tie-breaker via the original index.
+  events.forEach((ev, i) => { ev._sortIndex = i; });
+  events.sort((a, b) => {
+    for (let i = 0; i < sortSpec.length; i++) {
+      const va = eventSortValue_(a, sortSpec[i].field);
+      const vb = eventSortValue_(b, sortSpec[i].field);
+      if (va < vb) return sortSpec[i].dir === "Asc" ? -1 : 1;
+      if (va > vb) return sortSpec[i].dir === "Asc" ? 1 : -1;
+    }
+    return a._sortIndex - b._sortIndex;
+  });
+  events.forEach(ev => { delete ev._sortIndex; });
+}
+
+function eventSortValue_(event, field) {
+  switch (String(field || "").toLowerCase()) {
+    case "category":     return String(event.category || "").toLowerCase();
+    case "status":       return String(event.status || "").toLowerCase();
+    case "type":         return String(event.type || "").toLowerCase();
+    case "alphabetical":
+    case "title":        return String(event.title || "").toLowerCase();
+    case "source":       return Number(event.sourceRow || 0);
+    default:             return "";
+  }
 }
 
 function parseAdditionalConfig_(arr) {

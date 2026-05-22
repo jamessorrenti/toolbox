@@ -40,6 +40,8 @@
     "eventDefaultBackground": "#FFFFFF",
     "eventDefaultFontColor": "#7C2D12",
     "overflowBackground": "#FFF7ED",
-    "overflowFontColor": "#7C2D12"
+    "overflowFontColor": "#7C2D12",
+    "todayBackground": "#FED7AA",
+    "todayFontColor": "#7C2D12"
   }
 }
