@@ -103,6 +103,11 @@ function buildCalendarMenu() {
     "showImportThemeMenu",
     CALENDAR.showImportThemeMenu
   ) || hasAnyPerTabOverride_(ss);
+  const showGroupEventsByDateMenu = getKeyBooleanOption_(
+    ss,
+    "showGroupEventsByDateMenu",
+    CALENDAR.showGroupEventsByDateMenu
+  );
   const showKeyConfiguratorMenuItems = getKeyBooleanOption_(
     ss,
     "showKeyConfiguratorMenuItems",
@@ -130,13 +135,18 @@ function buildCalendarMenu() {
       .addItem("Create Event List", "createEventList");
   }
 
-  if (showSetKeyFromEventListMenu) {
+  if (showGroupEventsByDateMenu) {
     if (!showEventListMenu) menu.addSeparator();
+    menu.addItem("Group Events by Date", "groupEventsByDate");
+  }
+
+  if (showSetKeyFromEventListMenu) {
+    if (!showEventListMenu && !showGroupEventsByDateMenu) menu.addSeparator();
     menu.addItem("Set Key From Event List", "setKeyFromEventList");
   }
 
   if (showImportThemeMenu) {
-    if (!showEventListMenu && !showSetKeyFromEventListMenu) menu.addSeparator();
+    if (!showEventListMenu && !showGroupEventsByDateMenu && !showSetKeyFromEventListMenu) menu.addSeparator();
     menu.addItem("Import Theme", "importTheme");
 
     // "Add Theme Override" appears when the active tab is a calendar without
@@ -179,6 +189,7 @@ const CALENDAR = {
   showEventListMenu: true,
   showSetKeyFromEventListMenu: true,
   showImportThemeMenu: true,
+  showGroupEventsByDateMenu: true,
   showKeyConfiguratorMenuItems: true,
 
   // Auto-Refresh: when TRUE, source-list edits invalidate calendars and the
@@ -337,6 +348,7 @@ const KEY_SETUP_OPTIONS = [
   "showEventListMenu",
   "showSetKeyFromEventListMenu",
   "showImportThemeMenu",
+  "showGroupEventsByDateMenu",
   "showKeyConfiguratorMenuItems",
   "autoRefresh",
   "frozenWeekdayHeader",
@@ -366,6 +378,7 @@ const KEY_INITIAL_VALUES = {
   showEventListMenu: false,
   showSetKeyFromEventListMenu: false,
   showImportThemeMenu: false,
+  showGroupEventsByDateMenu: false,
   showKeyConfiguratorMenuItems: false,
   // autoRefresh defaults TRUE in the Key (different from the show* toggles).
   // It controls whether source-list edits trigger lazy calendar refresh on
@@ -445,6 +458,7 @@ const PER_TAB_OVERRIDE_EXCLUDED_OPTIONS = [
   "showEventListMenu",
   "showSetKeyFromEventListMenu",
   "showImportThemeMenu",
+  "showGroupEventsByDateMenu",
   "showKeyConfiguratorMenuItems",
 ];
 
@@ -2166,6 +2180,152 @@ function buildEventsSheet_(sheet) {
   sheet.setRowHeight(1, 30);
 }
 
+// Sort an event-list tab by its date column, then group rows by Year and
+// Month using Sheets row groups. Collapses groups that are entirely in the
+// past so the user lands on the current month. If the active tab isn't an
+// event list, prompts the user to pick one.
+function groupEventsByDate() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  applyKeyOverrides_(ss);
+
+  let sheet = ss.getActiveSheet();
+  if (!isSourceDataSheet_(sheet)) {
+    sheet = pickEventListSheet_(ui, ss);
+    if (!sheet) return;
+  }
+
+  const headers = readHeaders_(sheet);
+  if (!headers.length) {
+    ui.alert("Group Events by Date", 'No headers found in row 1 of "' + sheet.getName() + '".', ui.ButtonSet.OK);
+    return;
+  }
+
+  const dateColIndex = findColumnIndex(headers, [
+    CALENDAR.setup.customDate,
+    "Date", "Start Date", "Event Date", "Date/Time", "Date Time", "MMDD",
+    "Current MMDD", "Original MMDD",
+  ]);
+  if (dateColIndex < 0) {
+    ui.alert("Group Events by Date", 'No date column found on "' + sheet.getName() + '".', ui.ButtonSet.OK);
+    return;
+  }
+
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow < 2) {
+    ui.alert("Group Events by Date", "No event rows to group.", ui.ButtonSet.OK);
+    return;
+  }
+
+  // Clear any existing row groups in the data area before re-grouping.
+  clearAllRowGroups_(sheet);
+
+  // Sort by the date column ascending. The whole row sorts together so other
+  // columns stay aligned.
+  sheet.getRange(2, 1, lastRow - 1, lastCol)
+    .sort({ column: dateColIndex + 1, ascending: true });
+
+  // Re-read date values post-sort and normalize to {year, month} pairs.
+  const rawDates = sheet.getRange(2, dateColIndex + 1, lastRow - 1, 1).getValues();
+  const yearMonths = rawDates.map(r => {
+    const v = r[0];
+    if (v === null || v === undefined || v === "") return null;
+    const parsed = parseDateValue(v);
+    if (!parsed.length) return null;
+    const d = parsed[0];
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+
+  // Walk the sorted rows to find contiguous year + month blocks. Rows with
+  // unparseable / blank dates break any open block and are left ungrouped.
+  const yearBlocks = [];
+  const monthBlocks = [];
+  let curYear = null, curMonth = null;
+  let yearStart = -1, monthStart = -1;
+
+  function closeBlocks(endSheetRow) {
+    if (yearStart >= 0) yearBlocks.push({ year: curYear, startRow: yearStart, endRow: endSheetRow });
+    if (monthStart >= 0) monthBlocks.push({ year: curYear, month: curMonth, startRow: monthStart, endRow: endSheetRow });
+    yearStart = -1;
+    monthStart = -1;
+  }
+
+  for (let i = 0; i < yearMonths.length; i++) {
+    const ym = yearMonths[i];
+    const sheetRow = i + 2;
+    if (!ym) { closeBlocks(sheetRow - 1); curYear = null; curMonth = null; continue; }
+    if (curYear === null || ym.year !== curYear) {
+      closeBlocks(sheetRow - 1);
+      curYear = ym.year; curMonth = ym.month;
+      yearStart = sheetRow; monthStart = sheetRow;
+    } else if (ym.month !== curMonth) {
+      if (monthStart >= 0) monthBlocks.push({ year: curYear, month: curMonth, startRow: monthStart, endRow: sheetRow - 1 });
+      curMonth = ym.month; monthStart = sheetRow;
+    }
+  }
+  closeBlocks(yearMonths.length + 1);
+
+  // Apply year groups first (depth 1), then month groups (becomes depth 2
+  // since they're inside a year group).
+  yearBlocks.forEach(b => {
+    if (b.endRow >= b.startRow) {
+      sheet.getRange(b.startRow, 1, b.endRow - b.startRow + 1, 1).shiftRowGroupDepth(1);
+    }
+  });
+  monthBlocks.forEach(b => {
+    if (b.endRow >= b.startRow) {
+      sheet.getRange(b.startRow, 1, b.endRow - b.startRow + 1, 1).shiftRowGroupDepth(1);
+    }
+  });
+
+  // Collapse past groups. A whole past year collapses its months too, so we
+  // only handle past months of the *current* year separately.
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  const thisMonth = now.getMonth();
+
+  yearBlocks.forEach(b => {
+    if (b.year < thisYear) {
+      try {
+        const g = sheet.getRowGroup(b.startRow, 1);
+        if (g) g.collapse();
+      } catch (err) {}
+    }
+  });
+
+  monthBlocks.forEach(b => {
+    if (b.year === thisYear && b.month < thisMonth) {
+      try {
+        const g = sheet.getRowGroup(b.startRow, 2);
+        if (g) g.collapse();
+      } catch (err) {}
+    }
+  });
+
+  ss.setActiveSheet(sheet);
+  ss.toast(
+    'Grouped "' + sheet.getName() + '": ' + monthBlocks.length +
+      ' month(s) across ' + yearBlocks.length + ' year(s). Past groups collapsed.',
+    CALENDAR.menuName,
+    6
+  );
+}
+
+// Removes all row groups from the sheet. shiftRowGroupDepth(-1) on a range
+// reduces every row's group depth by 1; calling it repeatedly until no more
+// groups exist is the safest portable way to clear nested groups.
+function clearAllRowGroups_(sheet) {
+  const lastRow = sheet.getMaxRows();
+  if (lastRow < 1) return;
+  for (let i = 0; i < 5; i++) {
+    try {
+      sheet.getRange(1, 1, lastRow, 1).shiftRowGroupDepth(-1);
+    } catch (err) {
+      break;
+    }
+  }
+}
 
 function buildKeySheet_(sheet) {
   sheet.clear({ contentsOnly: false });
@@ -2214,6 +2374,7 @@ function buildKeySheet_(sheet) {
   setCheckboxIfOption_(sheet, "showEventListMenu");
   setCheckboxIfOption_(sheet, "showSetKeyFromEventListMenu");
   setCheckboxIfOption_(sheet, "showImportThemeMenu");
+  setCheckboxIfOption_(sheet, "showGroupEventsByDateMenu");
   setCheckboxIfOption_(sheet, "showKeyConfiguratorMenuItems");
   setCheckboxIfOption_(sheet, "autoRefresh");
   setCheckboxIfOption_(sheet, "frozenWeekdayHeader");
