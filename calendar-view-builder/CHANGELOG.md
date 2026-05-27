@@ -5,6 +5,19 @@ All notable changes to Calendar View Builder are documented here.
 
 ---
 
+## v13.15.1
+
+### Fixed
+
+- **G1 multi-select was wiped the instant you picked a second source.** Editing G1 triggers an `onEdit` branch that re-renders the calendar; that re-render calls `setSourceSheetDropdown_`, which re-applies `requireValueInList`. Apps Script's `DataValidationBuilder` has no method for the "Allow multiple selections" flag, so the flag got stripped and Sheets collapsed the chip-rendered value to the first chip — before the user ever saw multi-select stick. Same wipe also fired on Refresh All / per-calendar refresh / on-tab-switch auto-refresh. `setSourceSheetDropdown_` now skips re-applying validation when G1 already holds 2+ comma-separated tokens, preserving the flag and the multi-source value across all refresh paths. Single-source / blank G1 still gets the dropdown re-applied as before. Note is always refreshed.
+
+### Notes
+
+- Edge case: if multi-select is enabled but only one tab is currently picked (value is a single token), a refresh will wipe the flag — re-pick a second source to make it sticky again.
+- Adjacent issue not addressed here (flagged for a future pass): the same G1 `onEdit` branch also clears `A2` (filter field) and `B2` (filter value), so changing source sheets resets your filter. Acceptable for now since most users change sources rarely; revisit when scoping filter-state preservation across source switches.
+
+---
+
 ## v13.15.0
 
 ### Added

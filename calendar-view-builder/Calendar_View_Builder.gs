@@ -169,7 +169,7 @@ function buildCalendarMenu() {
 
 // Customization
 const CALENDAR = {
-  version: "13.15.0",
+  version: "13.15.1",
   menuName: "Calendar Tools",
   showInitialMenu: true,
   showEventListMenu: true,
@@ -2745,14 +2745,26 @@ function setSourceSheetDropdown_(sheet) {
     return;
   }
 
-  // Allow-invalid so the cell tolerates a comma-separated value once the user
-  // enables Data → Data validation → Allow multiple selections. With one tab
-  // selected the cell behaves like the legacy single-source dropdown.
-  setDropdownValidation(cell, names, true);
-
+  // If the user has multi-select enabled (G1 holds 2+ comma-separated tokens),
+  // skip re-applying the validation rule — Apps Script's DataValidationBuilder
+  // has no way to set the "Allow multiple selections" flag, so calling
+  // setDataValidation strips it and Sheets snaps the chip-rendered value to
+  // the first chip. This bites worst on the onEdit-triggered re-render that
+  // fires the instant a user picks a second source in the chip UI, before
+  // they ever see the multi-select state stick. Skipping preserves both the
+  // flag and the value. Single-source / blank G1 takes the normal path.
   const current = String(cell.getValue() || "").trim();
-  if (!current) {
-    cell.setValue(getDefaultSourceSpec(ss));
+  const tokens = parseFilterValues_(current);
+
+  if (tokens.length <= 1) {
+    // Allow-invalid so the cell tolerates a comma-separated value once the user
+    // enables Data → Data validation → Allow multiple selections. With one tab
+    // selected the cell behaves like the legacy single-source dropdown.
+    setDropdownValidation(cell, names, true);
+
+    if (!current) {
+      cell.setValue(getDefaultSourceSpec(ss));
+    }
   }
 
   cell.setNote(
